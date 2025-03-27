@@ -1,0 +1,15 @@
+torchrun --nproc_per_node=4 train_ddp.py \
+    --name=dinov2_vitl_training \
+    --wang2020_data_path=./datasets \
+    --data_mode=wang2020 \
+    --arch=DINOv2-LoRA:dinov2_vitl14 \
+    --fix_backbone \
+    --original_batch_size=256 \
+    --lr=0.001 \
+    --optim=adam \
+    --niter=20 \
+    --lora_rank=8 \
+    --lora_alpha=16 \
+    --earlystop_epoch=5 \
+    --local_models_only \
+    --model_dir=./pretrained_models
