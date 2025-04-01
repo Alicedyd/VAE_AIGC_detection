@@ -76,7 +76,7 @@ class RealFakeDataset(Dataset):
             temp = 'train/progan' if opt.data_label == 'train' else 'test/progan'
             real_list = get_list( os.path.join(opt.wang2020_data_path,temp), must_contain='0_real' )
             fake_list = get_list( os.path.join(opt.wang2020_data_path,temp), must_contain='1_fake' )
-            name = ['biggan', 'midjourney', 'adm', 'glide', 'sdv15', 'wukong', 'vqdm']
+            name = ['adm', 'biggan', 'glide', 'midjourney', 'sdv14', 'sdv15', 'wukong', 'vqdm']
             for dataset in name:
                 temp = 'train/'+dataset if opt.data_label == 'train' else 'test/'+dataset
                 print(temp)
