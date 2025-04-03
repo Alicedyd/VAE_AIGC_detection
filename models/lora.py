@@ -16,20 +16,15 @@ class LoRALayer(nn.Module):
         nn.init.zeros_(self.lora_B)
         
     def forward(self, x):
-        orig_shape = x.shape
+        """
+        优化计算：直接 x @ A.T 再乘 B.T，避免计算 W_LoRA = B @ A
+        """
+        # 执行低秩变换
+        lora_out = torch.einsum('...d, rd -> ...r', x, self.lora_A)  # x @ A.T
+        lora_out = torch.einsum('...r, or -> ...o', lora_out, self.lora_B)  # (x @ A.T) @ B.T
         
-        if len(orig_shape) > 2:
-            x_2d = x.reshape(-1, orig_shape[-1])
-        else:
-            x_2d = x
-            
-        lora_weight = (self.lora_B @ self.lora_A) * (self.alpha / self.rank)
-        output = x_2d @ lora_weight.T
-        
-        if len(orig_shape) > 2:
-            output = output.reshape(*orig_shape[:-1], lora_weight.shape[0])
-            
-        return output
+        return lora_out * (self.alpha / self.rank)
+
 
 class LoRALinear(nn.Module):
     def __init__(self, original_layer, rank=4, alpha=1.0, trainable_orig=False):
