@@ -83,7 +83,9 @@ class RealFakeDataset(Dataset):
                 real_list += get_list( os.path.join(opt.wang2020_data_path, temp), must_contain='0_real' )
                 fake_list += get_list( os.path.join(opt.wang2020_data_path, temp), must_contain='1_fake' )
 
-            if opt.chameleon
+            if opt.chameleon:
+                real_chameleon_list = get_list( '/root/autodl-tmp/AIGC_detection/Chemeleon/train', must_contain='0_real' )
+                fake_chameleon_list = get_list( '/root/autodl-tmp/AIGC_detection/Chemeleon/train', must_contain='1_fake' )
         print(len(real_list))
 
 
@@ -94,8 +96,16 @@ class RealFakeDataset(Dataset):
             self.labels_dict[i] = 0
         for i in fake_list:
             self.labels_dict[i] = 1
+            
+        if opt.chameleon:
+            self.chameleon_labels_dict = {}
+            for i in real_chameleon_list:
+                self.chameleon_labels_dict[i] = 0
+            for i in fake_chameleon_list:
+                self.chameleon_labels_dict[i] = 1
 
         self.total_list = real_list + fake_list
+        self.chameleon_list = real_chameleon_list + fake_chameleon_list if opt.chameleon else []
         shuffle(self.total_list)
         if opt.isTrain:
             crop_func = transforms.RandomCrop(opt.cropSize)
@@ -142,8 +152,12 @@ class RealFakeDataset(Dataset):
         
         for _ in range(max_attempts):
             try:
-                img_path = self.total_list[current_idx]
-                label = self.labels_dict[img_path]
+                if self.chameleon_list and current_idx % 100 == 0:
+                    img_path = self.chameleon_list[current_idx / 100]
+                    label = self.chameleon_labels_dict[img_path]
+                else:
+                    img_path = self.total_list[current_idx]
+                    label = self.labels_dict[img_path]
                 img = Image.open(img_path).convert("RGB")  
                 img = self.transform(img)
                 return img, label

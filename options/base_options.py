@@ -23,6 +23,8 @@ class BaseOptions():
         parser.add_argument('--jpg_prob', type=float, default=0.5)
         parser.add_argument('--jpg_method', default='cv2,pil')
         parser.add_argument('--jpg_qual', default='30,100')
+
+        parser.add_argument('--chameleon', action='store_true', help='use chameleon augmentation')
         
          
         parser.add_argument('--real_list_path', default=None, help='only used if data_mode==ours: path for the list of real images, which should contain train.pickle and val.pickle')
