@@ -94,13 +94,16 @@ def calculate_acc(y_true, y_pred, thres):
     return r_acc, f_acc, acc    
 
 
-def validate(model, loader, find_thres=False):
+def validate(model, loader, find_thres=False, gpu_id=None):
 
     with torch.no_grad():
         y_true, y_pred = [], []
         print ("Length of dataset: %d" %(len(loader)))
         for img, label in loader:
-            in_tens = img.cuda()
+            if gpu_id is not None:
+                in_tens = img.cuda(gpu_id)
+            else:
+                in_tens = img.cuda()
 
             y_pred.extend(model(in_tens).sigmoid().flatten().tolist())
             y_true.extend(label.flatten().tolist())
@@ -166,11 +169,13 @@ class RealFakeDataset(Dataset):
                         max_sample,
                         arch,
                         jpeg_quality=None,
-                        gaussian_sigma=None):
+                        gaussian_sigma=None,
+                        resolution_thres=None):
 
         assert data_mode in ["wang2020", "ours"]
         self.jpeg_quality = jpeg_quality
         self.gaussian_sigma = gaussian_sigma
+        self.resolution_thres = resolution_thres
         
         # = = = = = = data path = = = = = = = = = # 
         if type(real_path) == str and type(fake_path) == str:
@@ -211,6 +216,28 @@ class RealFakeDataset(Dataset):
             real_list = get_list(real_path)
             fake_list = get_list(fake_path)
 
+        def filter_by_resolution(image_list):
+            if self.resolution_thres is None:
+                return image_list
+                
+            filtered_list = []
+            for img_path in tqdm(image_list, desc="筛选分辨率"):
+                try:
+                    with Image.open(img_path) as img:
+                        w, h = img.size
+                        area = w * h
+                        if self.resolution_thres[0] <= area <= self.resolution_thres[1]:
+                            filtered_list.append(img_path)
+                except Exception as e:
+                    print(f"处理 {img_path} 时出错: {str(e)}")
+            return filtered_list
+        # 应用分辨率过滤
+        real_list = filter_by_resolution(real_list)
+        fake_list = filter_by_resolution(fake_list)
+
+        if len(real_list) == 0 or len(fake_list) == 0:
+            raise ValueError("经过分辨率过滤后，真实或生成图像数量为0，请检查分辨率阈值设置")
+
 
         if max_sample is not None:
             if (max_sample > len(real_list)) or (max_sample > len(fake_list)):
@@ -221,7 +248,7 @@ class RealFakeDataset(Dataset):
             real_list = real_list[0:max_sample]
             fake_list = fake_list[0:max_sample]
 
-        assert len(real_list) == len(fake_list)  
+        # assert len(real_list) == len(fake_list)  
 
         return real_list, fake_list
 
@@ -257,7 +284,7 @@ if __name__ == '__main__':
     parser.add_argument('--fake_path', type=str, default=None, help='dir name or a pickle')
     parser.add_argument('--data_mode', type=str, default=None, help='wang2020 or ours')
     parser.add_argument('--key', type=str, default=None, help='dataset key')
-    parser.add_argument('--max_sample', type=int, default=1000, help='only check this number of images for both fake/real')
+    parser.add_argument('--max_sample', type=int, default=None, help='only check this number of images for both fake/real')
 
     parser.add_argument('--arch', type=str, default='res50')
     parser.add_argument('--ckpt', type=str, default='./pretrained_weights/fc_weights.pth')
@@ -267,7 +294,13 @@ if __name__ == '__main__':
 
     parser.add_argument('--jpeg_quality', type=int, default=None, help="100, 90, 80, ... 30. Used to test robustness of our model. Not apply if None")
     parser.add_argument('--gaussian_sigma', type=int, default=None, help="0,1,2,3,4.     Used to test robustness of our model. Not apply if None")
+    parser.add_argument('--resolution_thres', type=int, nargs=2, default=None)
 
+    parser.add_argument('--gpu_id', type=int, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
+
+    parser.add_argument('--lora_rank', type=int, default=8, help='LoRA rank')
+    parser.add_argument('--lora_alpha', type=float, default=1.0, help='LoRA scaling factor')
+    parser.add_argument('--lora_targets', type=str, default=None, help='LoRA trainable targets')
 
     opt = parser.parse_args()
 
@@ -276,13 +309,22 @@ if __name__ == '__main__':
         shutil.rmtree(opt.result_folder)
     os.makedirs(opt.result_folder)
 
+    lora_args = {}
+    if hasattr(opt, 'lora_rank'):
+        lora_args['lora_rank'] = opt.lora_rank
+    if hasattr(opt, 'lora_alpha'):
+        lora_args['lora_alpha'] = opt.lora_alpha
+    if hasattr(opt, 'lora_targets'):
+        lora_args['lora_targets'] = opt.lora_targets.split(',') if opt.lora_targets else None
+    # model = get_model(opt.arch, **lora_args)
     model = get_model(opt.arch)
+
     state_dict = torch.load(opt.ckpt, map_location='cpu')['model']
     #model.fc.load_state_dict(state_dict)
     model.load_state_dict(state_dict)
     print ("Model loaded..")
     model.eval()
-    model.cuda()
+    model.cuda(opt.gpu_id)
 
     if (opt.real_path == None) or (opt.fake_path == None) or (opt.data_mode == None):
         dataset_paths = DATASET_PATHS
@@ -301,10 +343,11 @@ if __name__ == '__main__':
                                     opt.arch,
                                     jpeg_quality=opt.jpeg_quality, 
                                     gaussian_sigma=opt.gaussian_sigma,
+                                    resolution_thres=opt.resolution_thres,
                                     )
 
         loader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=False, num_workers=4)
-        ap, r_acc0, f_acc0, acc0, r_acc1, f_acc1, acc1, best_thres = validate(model, loader, find_thres=True)
+        ap, r_acc0, f_acc0, acc0, r_acc1, f_acc1, acc1, best_thres = validate(model, loader, find_thres=True, gpu_id=opt.gpu_id)
 
         with open( os.path.join(opt.result_folder,'ap.txt'), 'a') as f:
             f.write(dataset_path['key']+': ' + str(round(ap*100, 2))+'\n' )

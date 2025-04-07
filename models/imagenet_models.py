@@ -21,6 +21,7 @@ model_dict = {
 
 
 CHANNELS = {
+    "resnet18" : 512,
     "resnet50" : 2048,
     "vit_b_16" : 768,
 }

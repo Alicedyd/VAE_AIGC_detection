@@ -1,0 +1,12 @@
+python validate.py \
+    --data_mode=ours \
+    --arch=DINOv2-LoRA:dinov2_vitl14 \
+    --real_path=/root/autodl-tmp/AIGC_data/Chameleon/val/0_real \
+    --fake_path=/root/autodl-tmp/AIGC_data/Chameleon/val/1_fake \
+    --key='chameleon_46000_166500' \
+    --ckpt='./checkpoints/genimage_detection_dino_chameleon/model_epoch_best.pth' \
+    --result_folder='./result/dino_chameleon_resolution/' \
+    --lora_rank=8 \
+    --lora_alpha=1 \
+    --gpu_id 3 \
+    --resolution_thres 46000 166500 \

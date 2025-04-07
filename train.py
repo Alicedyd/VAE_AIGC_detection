@@ -8,6 +8,8 @@ from earlystop import EarlyStopping
 from networks.trainer import Trainer
 from options.train_options import TrainOptions
 
+import shutil
+
 
 """Currently assumes jpg_prob, blur_prob 0 or 1"""
 def get_val_opt():
@@ -18,6 +20,9 @@ def get_val_opt():
     val_opt.serial_batches = True
     val_opt.data_label = 'val'
     val_opt.jpg_method = ['pil']
+
+    val_opt.batch_size = 128
+
     if len(val_opt.blur_sig) == 2:
         b_sig = val_opt.blur_sig
         val_opt.blur_sig = [(b_sig[0] + b_sig[1]) / 2]
@@ -67,7 +72,7 @@ if __name__ == '__main__':
 
         # Validation
         model.eval()
-        ap, r_acc, f_acc, acc = validate(model.model, val_loader)
+        ap, r_acc, f_acc, acc = validate(model.model, val_loader, gpu_id=opt.gpu_ids[0])
         val_writer.add_scalar('accuracy', acc, model.total_steps)
         val_writer.add_scalar('ap', ap, model.total_steps)
         print("(Val @ epoch {}) acc: {}; ap: {}".format(epoch, acc, ap))

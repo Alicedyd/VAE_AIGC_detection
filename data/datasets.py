@@ -82,6 +82,8 @@ class RealFakeDataset(Dataset):
                 print(temp)
                 real_list += get_list( os.path.join(opt.wang2020_data_path, temp), must_contain='0_real' )
                 fake_list += get_list( os.path.join(opt.wang2020_data_path, temp), must_contain='1_fake' )
+
+            if opt.chameleon
         print(len(real_list))
 
 
