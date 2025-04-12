@@ -3,10 +3,9 @@ python validate.py \
     --arch=DINOv2-LoRA:dinov2_vitl14 \
     --real_path=/root/autodl-tmp/AIGC_data/Chameleon/test/0_real \
     --fake_path=/root/autodl-tmp/AIGC_data/Chameleon/test/1_fake \
-    --key='chameleon_166500_312500' \
+    --key='chameleon' \
     --ckpt='./checkpoints/genimage_detection_dino/model_iters_10000.pth' \
     --result_folder='./result/dino/' \
     --lora_rank=8 \
     --lora_alpha=1 \
-    --gpu_id 2 \
-    --resolution_thres 166500 312500
+    --gpu_id 1 

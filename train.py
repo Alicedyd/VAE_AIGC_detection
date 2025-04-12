@@ -32,9 +32,12 @@ def get_val_opt():
 
     return val_opt
 
+import torch.multiprocessing as mp
 
 
 if __name__ == '__main__':
+    mp.set_start_method('spawn', force=True)
+    
     opt = TrainOptions().parse()
     val_opt = get_val_opt()
  
@@ -75,7 +78,7 @@ if __name__ == '__main__':
         ap, r_acc, f_acc, acc = validate(model.model, val_loader, gpu_id=opt.gpu_ids[0])
         val_writer.add_scalar('accuracy', acc, model.total_steps)
         val_writer.add_scalar('ap', ap, model.total_steps)
-        print("(Val @ epoch {}) acc: {}; ap: {}".format(epoch, acc, ap))
+        print("(Val @ epoch {}) r_acc: {}; f_acc: {}, acc: {}, ap: {}".format(epoch, r_acc, f_acc, acc, ap))
 
         # early_stopping(acc, model)
         # if early_stopping.early_stop:

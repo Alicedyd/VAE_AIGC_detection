@@ -20,6 +20,9 @@ import random
 import shutil
 from scipy.ndimage.filters import gaussian_filter
 
+import torchvision.transforms.functional as TF
+from random import choice
+
 SEED = 0
 def set_seed():
     torch.manual_seed(SEED)
@@ -172,7 +175,7 @@ class RealFakeDataset(Dataset):
                         gaussian_sigma=None,
                         resolution_thres=None):
 
-        assert data_mode in ["wang2020", "ours"]
+        # assert data_mode in ["wang2020", "ours"]
         self.jpeg_quality = jpeg_quality
         self.gaussian_sigma = gaussian_sigma
         self.resolution_thres = resolution_thres
@@ -284,13 +287,17 @@ if __name__ == '__main__':
     parser.add_argument('--fake_path', type=str, default=None, help='dir name or a pickle')
     parser.add_argument('--data_mode', type=str, default=None, help='wang2020 or ours')
     parser.add_argument('--key', type=str, default=None, help='dataset key')
-    parser.add_argument('--max_sample', type=int, default=None, help='only check this number of images for both fake/real')
+    parser.add_argument('--max_sample', type=int, default=1000, help='only check this number of images for both fake/real')
 
     parser.add_argument('--arch', type=str, default='res50')
     parser.add_argument('--ckpt', type=str, default='./pretrained_weights/fc_weights.pth')
 
     parser.add_argument('--result_folder', type=str, default='./result', help='')
     parser.add_argument('--batch_size', type=int, default=128)
+
+    parser.add_argument('--no_resize', action='store_true', help='if specified, do not resize the images for data augmentation')
+    parser.add_argument('--rz_interp', default='bilinear')
+    parser.add_argument('--loadSize', type=int, default=256, help='scale images to this size')
 
     parser.add_argument('--jpeg_quality', type=int, default=None, help="100, 90, 80, ... 30. Used to test robustness of our model. Not apply if None")
     parser.add_argument('--gaussian_sigma', type=int, default=None, help="0,1,2,3,4.     Used to test robustness of our model. Not apply if None")
@@ -348,6 +355,8 @@ if __name__ == '__main__':
 
         loader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=False, num_workers=4)
         ap, r_acc0, f_acc0, acc0, r_acc1, f_acc1, acc1, best_thres = validate(model, loader, find_thres=True, gpu_id=opt.gpu_id)
+
+        print("(Val) r_acc: {}; f_acc: {}, acc: {}, ap: {}".format(r_acc0, f_acc0, acc0, ap))
 
         with open( os.path.join(opt.result_folder,'ap.txt'), 'a') as f:
             f.write(dataset_path['key']+': ' + str(round(ap*100, 2))+'\n' )

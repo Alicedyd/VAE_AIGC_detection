@@ -8,9 +8,7 @@ python train.py \
     --lr=0.0005 \
     --optim=adam \
     --niter=1 \
-    --gpu_ids='2' \
+    --gpu_ids='0' \
     --lora_rank=8 \
-    --lora_alpha=1 \
-    --chameleon
-
+    --lora_alpha=1 
 

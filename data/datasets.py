@@ -15,6 +15,8 @@ from skimage.io import imread
 from copy import deepcopy
 import torch
 
+from .vae import VAETransform, DoNothing
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
@@ -50,8 +52,6 @@ def get_list(path, must_contain=''):
     return image_list
 
 
-
-
 class RealFakeDataset(Dataset):
     def __init__(self, opt):
         assert opt.data_label in ["train", "val"]
@@ -84,8 +84,16 @@ class RealFakeDataset(Dataset):
                 fake_list += get_list( os.path.join(opt.wang2020_data_path, temp), must_contain='1_fake' )
 
             if opt.chameleon:
-                real_chameleon_list = get_list( '/root/autodl-tmp/AIGC_detection/Chemeleon/train', must_contain='0_real' )
-                fake_chameleon_list = get_list( '/root/autodl-tmp/AIGC_detection/Chemeleon/train', must_contain='1_fake' )
+                temp = 'train' if opt.data_label == 'train' else 'val'
+                print(f"chameleon/{temp}")
+                real_chameleon_list = get_list( f'/root/autodl-tmp/AIGC_data/Chameleon/{temp}', must_contain='0_real' )
+                fake_chameleon_list = get_list( f'/root/autodl-tmp/AIGC_data/Chameleon/{temp}', must_contain='1_fake' )
+        elif opt.data_mode == 'mscoco':
+            temp = 'train' if opt.data_label == 'train' else 'val'
+            print(opt.real_list_path)
+            print(opt.fake_list_path)
+            real_list = get_list( os.path.join(opt.real_list_path, f'{temp}2017') )
+            fake_list = get_list( os.path.join(opt.fake_list_path, f'{temp}2017') )
         print(len(real_list))
 
 
@@ -104,9 +112,14 @@ class RealFakeDataset(Dataset):
             for i in fake_chameleon_list:
                 self.chameleon_labels_dict[i] = 1
 
+        self.chameleon = opt.chameleon
+        self.chameleon_freq = opt.chameleon_freq
+
         self.total_list = real_list + fake_list
         self.chameleon_list = real_chameleon_list + fake_chameleon_list if opt.chameleon else []
         shuffle(self.total_list)
+        shuffle(self.chameleon_list)
+
         if opt.isTrain:
             crop_func = transforms.RandomCrop(opt.cropSize)
         elif opt.no_crop:
@@ -118,11 +131,6 @@ class RealFakeDataset(Dataset):
             flip_func = transforms.RandomHorizontalFlip()
         else:
             flip_func = transforms.Lambda(lambda img: img)
-        if not opt.isTrain and opt.no_resize:
-            rz_func = transforms.Lambda(lambda img: img)
-        else:
-            rz_func = transforms.Lambda(lambda img: custom_resize(img, opt))
-        
 
         stat_from = "imagenet" if opt.arch.lower().startswith("imagenet") else "clip"
 
@@ -130,7 +138,6 @@ class RealFakeDataset(Dataset):
         if '2b' not in opt.arch:
             print ("using Official CLIP's normalization")
             self.transform = transforms.Compose([
-                rz_func,
                 transforms.Lambda(lambda img: data_augment(img, opt)),
                 crop_func,
                 flip_func,
@@ -148,22 +155,25 @@ class RealFakeDataset(Dataset):
 
     def __getitem__(self, idx):
         max_attempts = 5
-        current_idx = idx
+        current_idx = idx 
         
         for _ in range(max_attempts):
             try:
-                if self.chameleon_list and current_idx % 100 == 0:
-                    img_path = self.chameleon_list[current_idx / 100]
+                if self.chameleon and (current_idx % self.chameleon_freq) == 0:
+                    img_path = self.chameleon_list[(current_idx // self.chameleon_freq) % len(self.chameleon_list)]
                     label = self.chameleon_labels_dict[img_path]
                 else:
                     img_path = self.total_list[current_idx]
                     label = self.labels_dict[img_path]
-                img = Image.open(img_path).convert("RGB")  
+                img = Image.open(img_path).convert("RGB")
                 img = self.transform(img)
                 return img, label
                 
             except Exception as e:
-                print(f"加载图像出错 {self.total_list[current_idx]}: {e}")
+                if self.chameleon and (current_idx % self.chameleon_freq) == 0:
+                    print(f"加载图像出错 {self.chameleon_list[(current_idx // self.chameleon_freq) % len(self.chameleon_list)]}: {e}")
+                else:
+                    print(f"加载图像出错 {self.total_list[current_idx]}: {e}")
                 current_idx = (current_idx + 1) % len(self.total_list)
         
         print(f"警告: 多次尝试后仍无法加载有效图像，返回空白图像")

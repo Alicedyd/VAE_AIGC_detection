@@ -3,6 +3,7 @@ import numpy as np
 from torch.utils.data.sampler import WeightedRandomSampler
 
 from .datasets import RealFakeDataset
+from .vae import VAETransform
 
 def get_bal_sampler(dataset):
     targets = []
@@ -32,5 +33,5 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
                                               sampler=sampler,
                                               num_workers=int(opt.num_threads),
                                               pin_memory=True,
-                                              drop_last=opt.isTrain)
+                                              drop_last=opt.isTrain,)
     return data_loader
