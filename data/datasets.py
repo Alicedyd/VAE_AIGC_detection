@@ -4,6 +4,7 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
 from torch.utils.data import Dataset
+import random as rd
 from random import random, choice, shuffle
 from io import BytesIO
 from PIL import Image
@@ -16,6 +17,7 @@ from copy import deepcopy
 import torch
 
 from .vae import VAETransform, DoNothing
+import torchvision.transforms.functional as F
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -50,6 +52,247 @@ def get_list(path, must_contain=''):
     else:
         image_list = recursively_read(path, must_contain)
     return image_list
+
+
+def batch_data_augment(batch_img, opt):
+    """对批量图像进行数据增强处理"""
+    batch_size = len(batch_img)
+    result = []
+    
+    for i in range(batch_size):
+        # 对单个样本进行数据增强
+        augmented = data_augment(batch_img[i], opt)
+        result.append(augmented)
+    
+    return result
+
+def batch_to_tensor(batch_img):
+    """将批量图像转换为tensor"""
+    batch_size = len(batch_img)
+    result = []
+    
+    for i in range(batch_size):
+        # 转换为tensor并归一化
+        img_tensor = transforms.ToTensor()(batch_img[i])
+        img_tensor = transforms.Normalize(mean=MEAN["clip"], std=STD["clip"])(img_tensor)
+        result.append(img_tensor)
+        
+    return result
+
+class BatchRandomCrop:
+    """批量随机裁剪"""
+    def __init__(self, size):
+        self.size = size
+        
+    def __call__(self, batch_img):
+        batch_size = len(batch_img)
+        result = []
+        
+        for i in range(batch_size):
+
+            w, h = batch_img[i].size  # 假设输入为 [C, H, W]
+
+            pad_h = max(0, self.size - h)
+            pad_w = max(0, self.size - w)
+
+            # 如果需要填充
+            if pad_h > 0 or pad_w > 0:
+                padding = (
+                    pad_w // 2,          # left
+                    pad_h // 2,          # top
+                    pad_w - pad_w // 2,  # right
+                    pad_h - pad_h // 2   # bottom
+                )
+                batch_img[i] = F.pad(batch_img[i], padding, fill=0)  # 填充0或其他值，如255
+
+            # 对单个图像应用随机裁剪
+            cropped = transforms.RandomCrop(self.size)(batch_img[i])
+            result.append(cropped)
+            
+        return result
+
+class BatchCenterCrop:
+    """批量中心裁剪"""
+    def __init__(self, size):
+        self.size = size
+        
+    def __call__(self, batch_img):
+        # 中心裁剪可以直接对整个批次操作
+        batch_size = len(batch_img)
+        result = []
+        
+        for i in range(batch_size):
+
+            w, h = batch_img[i].size  # 假设输入为 [C, H, W]
+
+            pad_h = max(0, self.size - h)
+            pad_w = max(0, self.size - w)
+
+            # 如果需要填充
+            if pad_h > 0 or pad_w > 0:
+                padding = (
+                    pad_w // 2,          # left
+                    pad_h // 2,          # top
+                    pad_w - pad_w // 2,  # right
+                    pad_h - pad_h // 2   # bottom
+                )
+                batch_img[i] = F.pad(batch_img[i], padding, fill=0)  # 填充0或其他值，如255
+
+            # 对单个图像应用随机裁剪
+            cropped = transforms.CenterCrop(self.size)(batch_img[i])
+            result.append(cropped)
+            
+        return result
+
+class BatchRandomHorizontalFlip:
+    """批量随机水平翻转"""
+    def __init__(self, p=0.5):
+        self.p = p
+        
+    def __call__(self, batch_img):
+        batch_size = len(batch_img)
+        result = []
+        
+        for i in range(batch_size):
+            # 对单个图像应用随机翻转
+            if torch.rand(1) < self.p:
+                flipped = F.hflip(batch_img[i])
+            else:
+                flipped = batch_img[i]
+            result.append(flipped)
+            
+        return result
+
+def create_transformations(opt):
+    """创建批量图像变换函数列表"""
+    transforms_list = []
+    
+    # 裁剪
+    if opt.isTrain:
+        crop_func = BatchRandomCrop(opt.cropSize)
+    elif opt.no_crop:
+        crop_func = lambda batch_img: batch_img
+    else:
+        crop_func = BatchCenterCrop(opt.cropSize)
+    transforms_list.append(crop_func)
+
+    # 数据增强
+    transforms_list.append(lambda batch_img: batch_data_augment(batch_img, opt))
+    
+    # 翻转
+    if opt.isTrain and not opt.no_flip:
+        flip_func = BatchRandomHorizontalFlip()
+    else:
+        flip_func = lambda batch_img: batch_img
+    transforms_list.append(flip_func)
+
+    transforms_list.append(lambda batch_img: batch_to_tensor(batch_img))
+    
+    return transforms_list
+
+
+class CustomBatchSampler:
+    def __init__(self, opt, vae_model, transform_funcs):
+        temp = 'train' if opt.data_label == 'train' else 'val'
+        self.real_list = get_list( os.path.join(opt.real_list_path, f'{temp}2017') )
+        self.vae_model = vae_model
+        self.transform_funcs = transform_funcs
+
+        self.vae_transform_funcs_list = []
+        for vae in vae_model:
+            vae_transform_funcs = transform_funcs.copy()
+            vae_transform_funcs.insert(1, vae)
+            self.vae_transform_funcs_list.append(vae_transform_funcs)
+        
+        self.batch_size =opt.batch_size
+        self.gpu_id = opt.gpu_ids[0]
+
+        self.indices = list(range(len(self.real_list)))
+        
+    def __iter__(self):
+        return self
+        
+    def __next__(self):
+        """返回一个批次的处理后数据"""
+        # 随机选择索引
+        real_batch_indices = rd.sample(self.indices, self.batch_size // 2)
+        fake_batch_indices = rd.sample(self.indices, self.batch_size // 2)
+
+        batch_real_images = []
+        batch_fake_images = []
+        batch_labels = []
+
+        for idx in real_batch_indices:
+            try:
+                # 加载图像
+                img_path = self.real_list[idx]
+                label = 0
+                
+                # 打开并转换图像
+                img = Image.open(img_path).convert("RGB")
+                
+                # # 应用数据变换（裁剪、翻转等）
+                # for transform in self.transform_funcs:
+                #     img = transform(img)
+                
+                # 转换为tensor并归一化
+                # if isinstance(img, Image.Image):
+                #     img = transforms.ToTensor()(img)
+                #     img = transforms.Normalize(mean=MEAN["clip"], std=STD["clip"])(img)
+                
+                # 添加到批次
+                batch_real_images.append(img)
+                batch_labels.append(label)
+                
+            except Exception as e:
+                print(f"Error processing image {img_path}: {e}")
+
+        for idx in fake_batch_indices:
+            try:
+                # 加载图像
+                img_path = self.real_list[idx]
+                label = 1
+                
+                # 打开并转换图像
+                img = Image.open(img_path).convert("RGB")
+                
+                # # 应用数据变换（裁剪、翻转等）
+                # for transform in self.transform_funcs:
+                #     img = transform(img)
+                
+                # 转换为tensor并归一化
+                # if isinstance(img, Image.Image):
+                #     img = transforms.ToTensor()(img)
+                #     img = transforms.Normalize(mean=MEAN["clip"], std=STD["clip"])(img)
+                
+                # 添加到批次
+                batch_fake_images.append(img)
+                batch_labels.append(label)
+                
+            except Exception as e:
+                print(f"Error processing image {img_path}: {e}")
+
+        # 批量transform和vae
+
+        for trans in self.transform_funcs:
+            batch_real_images = trans(batch_real_images)
+
+        vae_transform_funcs = rd.choice(self.vae_transform_funcs_list)
+        for trans in vae_transform_funcs:
+            batch_fake_images = trans(batch_fake_images)
+     
+        # 堆叠为张量
+        real_images_tensor = torch.stack(batch_real_images).cuda(self.gpu_id)
+        fake_images_tensor = torch.stack(batch_fake_images).cuda(self.gpu_id)
+        labels_tensor = torch.tensor(batch_labels).cuda(self.gpu_id)
+
+        images_tensor = torch.cat((real_images_tensor, fake_images_tensor), dim=0)
+            
+        return images_tensor, labels_tensor
+    
+    def __len__(self):
+        """返回一个epoch中的批次数量"""
+        return ( len(self.real_list) // (self.batch_size) ) * (1+len(self.vae_transform_funcs_list))
 
 
 class RealFakeDataset(Dataset):
@@ -120,6 +363,7 @@ class RealFakeDataset(Dataset):
         shuffle(self.total_list)
         shuffle(self.chameleon_list)
 
+        target_size = (opt.cropSize, opt.cropSize)
         if opt.isTrain:
             crop_func = transforms.RandomCrop(opt.cropSize)
         elif opt.no_crop:
@@ -180,6 +424,17 @@ class RealFakeDataset(Dataset):
         blank_img = torch.zeros(3, 224, 224)
         return blank_img, 1 
 
+
+# def get_padding(img_size, target_size):
+#     img_w, img_h = img_size
+#     target_w, target_h = target_size
+
+#     pad_w = max(target_w - img_w, 0)
+#     pad_h = max(target_h - img_h, 0)
+
+#     # 左右、上下对称 padding
+#     padding = (pad_w // 2, pad_h // 2, pad_w - pad_w // 2, pad_h - pad_h // 2)
+#     return padding
 
 def data_augment(img, opt):
     img = np.array(img)

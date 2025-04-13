@@ -32,12 +32,8 @@ def get_val_opt():
 
     return val_opt
 
-import torch.multiprocessing as mp
-
 
 if __name__ == '__main__':
-    mp.set_start_method('spawn', force=True)
-    
     opt = TrainOptions().parse()
     val_opt = get_val_opt()
  
@@ -54,10 +50,14 @@ if __name__ == '__main__':
     print ("Length of data loader: %d" %(len(data_loader)))
     for epoch in range(opt.niter):
         
-        for i, data in enumerate(data_loader):
+        # for i, data in enumerate(data_loader):
+
+        for i in range(len(data_loader)):
             model.total_steps += 1
 
-            model.set_input(data)
+            inputs, labels = next(data_loader)
+
+            model.set_input([inputs, labels])
             model.optimize_parameters()
 
             if model.total_steps % opt.loss_freq == 0:

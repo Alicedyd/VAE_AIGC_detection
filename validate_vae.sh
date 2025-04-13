@@ -4,8 +4,8 @@ python validate.py \
     --real_path=/root/autodl-tmp/AIGC_data/MSCOCO/val2017 \
     --fake_path=/root/autodl-tmp/AIGC_data/DRCT-2M/stable-diffusion-xl-base-1.0/val2017 \
     --key='sdxl' \
-    --ckpt='./checkpoints/drct_detection_dino/model_epoch_0.pth' \
-    --result_folder='./result/drct_dino/' \
+    --ckpt='./checkpoints/drct_detection_dino_vae_single/model_iters_100.pth' \
+    --result_folder='./result/drct_dino_vae/' \
     --lora_rank=8 \
     --lora_alpha=1 \
-    --gpu_id 1
+    --gpu_id 0
