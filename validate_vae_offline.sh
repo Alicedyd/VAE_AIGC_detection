@@ -3,12 +3,12 @@
 # 模型相关设置
 DATA_MODE="ours"
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/drct_detection_dino_vae_offline_single/model_iters_100.pth"
-RESULT_FOLDER="./result/drct_dino_vae_offline_single/"
+CKPT="./checkpoints/drct_detection_dino_vae_offline_multi/model_iters_1000.pth"
+RESULT_FOLDER="./result/drct_dino_vae_offline_multi/"
 LORA_RANK=8
 LORA_ALPHA=1
 JPEG_QUALITY=95
-GPU_ID=0
+GPU_ID=2
 
 # DRCT-2M 数据集设置
 # 数据集根目录
@@ -70,10 +70,10 @@ REAL_PATH=$(IFS=, ; echo "${REAL_PATHS[*]}")
 FAKE_PATH=$(IFS=, ; echo "${FAKE_PATHS[*]}")
 KEY=$(IFS=, ; echo "${KEYS[*]}")
 
-# # Chameleon 数据集设置
-# REAL_PATH="/root/autodl-tmp/AIGC_data/Chameleon/test/0_real"
-# FAKE_PATH="/root/autodl-tmp/AIGC_data/Chameleon/test/1_fake"
-# KEY="Chameleon"
+# Chameleon 数据集设置
+REAL_PATH="/root/autodl-tmp/AIGC_data/Chameleon/test/0_real"
+FAKE_PATH="/root/autodl-tmp/AIGC_data/Chameleon/test/1_fake"
+KEY="Chameleon"
 
 # 执行 Python 脚本
 python validate.py \
