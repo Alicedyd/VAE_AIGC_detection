@@ -148,12 +148,14 @@ class VAETransform:
         self.vae = self.load_vae()
 
         step = 2
+        iter_batch_size = len(batch_img) // step
 
+        pil_img = []
         for i in range(step):
         
             # 转换PIL图像为tensor [C, H, W]
             x = []
-            for img in batch_img:
+            for img in batch_img[i * iter_batch_size: (i + 1) * iter_batch_size]:
                 x.append(self.to_tensor(img))
             
             x = torch.stack(x, dim=0)
@@ -181,7 +183,6 @@ class VAETransform:
             decoded = decoded.squeeze(0).cpu()
             
             # 转换回PIL图像
-            pil_img = []
             for decoded_tensor in decoded:
                 pil_img.append(self.to_pil(decoded_tensor))
         
