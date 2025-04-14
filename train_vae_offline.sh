@@ -1,6 +1,7 @@
 python train.py \
-    --name drct_detection_dino_vae_multi \
+    --name drct_detection_dino_vae_offline_single_crop \
     --real_list_path /root/autodl-tmp/AIGC_data/MSCOCO/ \
+    --fake_list_path /root/autodl-tmp/AIGC_data/MSCOCO_XL_CROP \
     --data_mode=mscoco \
     --arch=DINOv2-LoRA:dinov2_vitl14 \
     --fix_backbone \
@@ -8,10 +9,6 @@ python train.py \
     --lr=0.0005 \
     --optim=adam \
     --niter=1 \
-    --gpu_ids='0' \
+    --gpu_ids='1' \
     --lora_rank=8 \
-    --lora_alpha=1 \
-    --vae \
-    --pre_vae resize 
-
-# --fake_list_path /root/autodl-tmp/AIGC_data/DRCT-2M/stable-diffusion-xl-base-1.0/ \
+    --lora_alpha=1 

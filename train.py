@@ -22,6 +22,7 @@ def get_val_opt():
     val_opt.jpg_method = ['pil']
 
     val_opt.batch_size = 128
+    val_opt.vae = False
 
     if len(val_opt.blur_sig) == 2:
         b_sig = val_opt.blur_sig
@@ -52,21 +53,41 @@ if __name__ == '__main__':
         
         # for i, data in enumerate(data_loader):
 
-        for i in range(len(data_loader)):
-            model.total_steps += 1
+        if opt.vae:
 
-            inputs, labels = next(data_loader)
+            data_loader.set_epoch_start()
 
-            model.set_input([inputs, labels])
-            model.optimize_parameters()
+            for i in range(len(data_loader)):
+                model.total_steps += 1
 
-            if model.total_steps % opt.loss_freq == 0:
-                print("Train loss: {} at step: {}".format(model.loss, model.total_steps))
-                train_writer.add_scalar('loss', model.loss, model.total_steps)
-                print("Iter time: ", ((time.time()-start_time)/model.total_steps)  )
+                inputs, labels = next(data_loader)
 
-            if model.total_steps in [100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000]: # save models at these iters 
-                model.save_networks('model_iters_%s.pth' % model.total_steps)
+                model.set_input([inputs, labels])
+                model.optimize_parameters()
+
+                if model.total_steps % opt.loss_freq == 0:
+                    print("Train loss: {} at step: {}".format(model.loss, model.total_steps))
+                    train_writer.add_scalar('loss', model.loss, model.total_steps)
+                    print("Iter time: ", ((time.time()-start_time)/model.total_steps)  )
+
+                if model.total_steps in [100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000]: # save models at these iters 
+                    model.save_networks('model_iters_%s.pth' % model.total_steps)
+
+        else:
+
+            for i, data in enumerate(data_loader):
+                model.total_steps += 1
+
+                model.set_input(data)
+                model.optimize_parameters()
+
+                if model.total_steps % opt.loss_freq == 0:
+                    print("Train loss: {} at step: {}".format(model.loss, model.total_steps))
+                    train_writer.add_scalar('loss', model.loss, model.total_steps)
+                    print("Iter time: ", ((time.time()-start_time)/model.total_steps)  )
+
+                if model.total_steps in [100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000]: # save models at these iters 
+                    model.save_networks('model_iters_%s.pth' % model.total_steps)
 
         if epoch % opt.save_epoch_freq == 0:
             print('saving the model at the end of epoch %d' % (epoch))

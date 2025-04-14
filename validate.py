@@ -23,6 +23,8 @@ from scipy.ndimage.filters import gaussian_filter
 import torchvision.transforms.functional as TF
 from random import choice
 
+import csv
+
 SEED = 0
 def set_seed():
     torch.manual_seed(SEED)
@@ -143,7 +145,7 @@ def validate(model, loader, find_thres=False, gpu_id=None):
 
 
 
-def recursively_read(rootdir, must_contain, exts=["png", "jpg", "JPEG", "jpeg", "bmp"]):
+def recursively_read(rootdir, must_contain, exts=["PNG", "png", "jpg", "JPEG", "jpeg", "bmp"]):
     out = [] 
     for r, d, f in os.walk(rootdir):
         for file in f:
@@ -312,9 +314,9 @@ if __name__ == '__main__':
     opt = parser.parse_args()
 
     
-    if os.path.exists(opt.result_folder):
-        shutil.rmtree(opt.result_folder)
-    os.makedirs(opt.result_folder)
+    # if os.path.exists(opt.result_folder):
+    #     shutil.rmtree(opt.result_folder)
+    os.makedirs(opt.result_folder, exist_ok=True)
 
     lora_args = {}
     if hasattr(opt, 'lora_rank'):
@@ -336,7 +338,15 @@ if __name__ == '__main__':
     if (opt.real_path == None) or (opt.fake_path == None) or (opt.data_mode == None):
         dataset_paths = DATASET_PATHS
     else:
-        dataset_paths = [ dict(real_path=opt.real_path, fake_path=opt.fake_path, data_mode=opt.data_mode, key=opt.key) ]
+        dataset_paths = []
+        real_path_list = opt.real_path.split(',')
+        fake_path_list = opt.fake_path.split(',')
+        key_list = opt.key.split(',')
+
+        for i in range(len(real_path_list)):
+            dataset_paths.append( dict(real_path=real_path_list[i], fake_path=fake_path_list[i], data_mode=opt.data_mode, key=key_list[i]) )
+
+        # dataset_paths = [ dict(real_path=opt.real_path, fake_path=opt.fake_path, data_mode=opt.data_mode, key=opt.key) ]
 
     print(dataset_paths)
     
@@ -356,7 +366,12 @@ if __name__ == '__main__':
         loader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=False, num_workers=4)
         ap, r_acc0, f_acc0, acc0, r_acc1, f_acc1, acc1, best_thres = validate(model, loader, find_thres=True, gpu_id=opt.gpu_id)
 
-        print("(Val) r_acc: {}; f_acc: {}, acc: {}, ap: {}".format(r_acc0, f_acc0, acc0, ap))
+        print("(Val {}) r_acc: {}; f_acc: {}, acc: {}, ap: {}".format(dataset_path['key'], r_acc0, f_acc0, acc0, ap))
+
+        csv_file = os.path.join(opt.result_folder, 'result.csv')
+        with open(csv_file, mode='a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([dataset_path['key'], r_acc0, f_acc0, acc0, ap])
 
         with open( os.path.join(opt.result_folder,'ap.txt'), 'a') as f:
             f.write(dataset_path['key']+': ' + str(round(ap*100, 2))+'\n' )

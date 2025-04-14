@@ -28,6 +28,7 @@ class BaseOptions():
         parser.add_argument('--chameleon_freq', type=int, default=100, help='frequency of chameleon augmentation')
 
         parser.add_argument('--vae', action='store_true', help='use VAE augmentation')
+        parser.add_argument('--pre_vae', default='resize', help='how to unify size before VAE [resize|padding]')
         
          
         parser.add_argument('--real_list_path', default=None, help='only used if data_mode==ours: path for the list of real images, which should contain train.pickle and val.pickle')
