@@ -137,13 +137,16 @@ def batch_unify_size_padding(batch_img, target_size=None):
             max_height = max(max_height, h)
         target_size = (max_width, max_height)
     
+    # 确保target_size是一个固定的(width, height)，不随图像方向变化
+    fixed_width, fixed_height = target_size
+    
     for i in range(batch_size):
         img = batch_img[i]
         w, h = img.size
         
         # 计算需要的填充量
-        pad_w = max(0, target_size[0] - w)
-        pad_h = max(0, target_size[1] - h)
+        pad_w = max(0, fixed_width - w)
+        pad_h = max(0, fixed_height - h)
         
         # 应用填充
         if pad_w > 0 or pad_h > 0:
@@ -153,10 +156,22 @@ def batch_unify_size_padding(batch_img, target_size=None):
                 pad_w - pad_w // 2,  # right
                 pad_h - pad_h // 2   # bottom
             )
-            padded = ImageOps.expand(img, padding, fill=0)  # 黑色填充
+            padded = F.pad(img, padding, fill=0) 
         else:
             # 如果图像已经大于或等于目标尺寸，则进行中心裁剪
-            padded = transforms.CenterCrop(target_size)(img)
+            # 确保裁剪为指定的固定尺寸
+            padded = transforms.CenterCrop((fixed_height, fixed_width))(img)
+        
+        # 最后确认尺寸是否正确
+        # 如果是PIL图像，验证尺寸并调整
+        if hasattr(padded, 'size'):
+            pad_w, pad_h = padded.size
+            if pad_w != fixed_width or pad_h != fixed_height:
+                padded = padded.resize((fixed_width, fixed_height))
+        # # 如果是张量，验证尺寸并调整
+        # elif isinstance(padded, torch.Tensor):
+        #     if padded.shape[-2] != fixed_height or padded.shape[-1] != fixed_width:
+        #         padded = transforms.functional.resize(padded, (fixed_height, fixed_width))
         
         result.append(padded)
         
