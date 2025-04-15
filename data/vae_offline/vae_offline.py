@@ -215,7 +215,7 @@ def rebuild_folder(input_folder, output_folder, vae_model="stabilityai/sdxl-vae"
     for path in image_paths:
         # 计算相对路径
         rel_path = path[input_folder_len:] if path.startswith(input_folder) else os.path.basename(path)
-        out_path = os.path.join(output_folder, rel_path)
+        out_path = os.path.join(output_folder, rel_path.split('.')[0] + ".png")
         
         # 如果需要跳过已存在的文件
         if skip_existing and os.path.exists(out_path):

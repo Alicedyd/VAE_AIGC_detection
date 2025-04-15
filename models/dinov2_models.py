@@ -123,7 +123,7 @@ class DINOv2Model(nn.Module):
                 features = features.get('x_norm_clstoken', features.get('last_hidden_state', None)[:, 0])
             
         if return_feature:
-            return features
+            return features, self.fc(features)
         
         
         return self.fc(features)

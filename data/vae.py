@@ -99,7 +99,7 @@ class VAETransform:
     使用SDXL的VAE对图像进行编码和解码的变换
     接收PIL Image输入，返回PIL Image输出
     """
-    def __init__(self, gpu_id, vae_model_path="stabilityai/sdxl-vae"):
+    def __init__(self, gpu_id, vae_model_path="stabilityai/sdxl-vae", batch_process=True):
         self.vae = None
         self.vae_model_path = vae_model_path
         self.gpu_id = gpu_id
@@ -107,6 +107,8 @@ class VAETransform:
         self.to_tensor = transforms.ToTensor()
         # 用于将tensor转换回PIL Image的变换
         self.to_pil = transforms.ToPILImage()
+
+        self.batch_process = batch_process
 
     # def to_tensor(self, img):
     #     """将PIL Image转换为tensor"""
@@ -147,44 +149,68 @@ class VAETransform:
         # self.vae = SingletonVAE.get_instance(self.gpu_id, self.vae_model_path)
         self.vae = self.load_vae()
 
-        step = 2
-        iter_batch_size = len(batch_img) // step
+        if self.batch_process:
 
-        pil_img = []
-        for i in range(step):
-        
-            # 转换PIL图像为tensor [C, H, W]
-            x = []
-            for img in batch_img[i * iter_batch_size: (i + 1) * iter_batch_size]:
-                x.append(self.to_tensor(img))
-            
-            x = torch.stack(x, dim=0)
-            
-            # 添加batch维度并移至设备
-            x_batch = x.cuda(self.gpu_id)
-            
-            # VAE期望输入范围为[-1, 1]
-            x_batch = 2 * x_batch - 1
+            step = 2
+            iter_batch_size = len(batch_img) // step
 
-            # 确保输入tensor的类型和VAE模型匹配
-            model_dtype = next(self.vae.parameters()).dtype
-            x_batch = x_batch.to(dtype=model_dtype)
+            pil_img = []
+            for i in range(step):
             
-            with torch.no_grad():
-                # 编码
-                latents = self.vae.encode(x_batch).latent_dist.sample()
-                latents = latents * self.vae.config.scaling_factor
+                # 转换PIL图像为tensor [C, H, W]
+                x = []
+                for img in batch_img[i * iter_batch_size: (i + 1) * iter_batch_size]:
+                    x.append(self.to_tensor(img))
                 
-                # 解码
-                decoded = self.vae.decode(latents / self.vae.config.scaling_factor).sample
+                x = torch.stack(x, dim=0)
+                
+                # 添加batch维度并移至设备
+                x_batch = x.cuda(self.gpu_id)
+                
+                # VAE期望输入范围为[-1, 1]
+                x_batch = 2 * x_batch - 1
+
+                # 确保输入tensor的类型和VAE模型匹配
+                model_dtype = next(self.vae.parameters()).dtype
+                x_batch = x_batch.to(dtype=model_dtype)
+                
+                with torch.no_grad():
+                    # 编码
+                    latents = self.vae.encode(x_batch).latent_dist.sample()
+                    latents = latents * self.vae.config.scaling_factor
+                    
+                    # 解码
+                    decoded = self.vae.decode(latents / self.vae.config.scaling_factor).sample
+                
+                # 转换回[0, 1]范围并移除batch维度
+                decoded = (decoded + 1) / 2
+                
+                # 转换回PIL图像
+                for decoded_tensor in decoded:
+                    pil_img.append(self.to_pil(decoded_tensor))
             
-            # 转换回[0, 1]范围并移除batch维度
-            decoded = (decoded + 1) / 2
-            decoded = decoded.squeeze(0).cpu()
-            
-            # 转换回PIL图像
-            for decoded_tensor in decoded:
-                pil_img.append(self.to_pil(decoded_tensor))
-        
-        return pil_img
+            return pil_img
     
+        else:
+            pil_img = []
+            for img in batch_img:
+                x_batch = self.to_tensor(img).unsqueeze(0).cuda(self.gpu_id)
+                
+                # VAE期望输入范围为[-1, 1]
+                x_batch = 2 * x_batch - 1
+                
+                with torch.no_grad():
+                    # 编码
+                    latents = self.vae.encode(x_batch).latent_dist.sample()
+                    latents = latents * self.vae.config.scaling_factor
+                    
+                    # 解码
+                    decoded = self.vae.decode(latents / self.vae.config.scaling_factor).sample
+                
+                # 转换回[0, 1]范围并移除batch维度
+                decoded = (decoded + 1) / 2
+                decoded = decoded.squeeze(0).cpu()
+
+                pil_img.append(self.to_pil(decoded))
+                
+            return pil_img

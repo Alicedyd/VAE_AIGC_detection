@@ -39,8 +39,8 @@ def get_bal_sampler(dataset):
 
 vae_path_list = [
     "stabilityai/sdxl-vae",
-    "stabilityai/sd-vae-ft-mse",
-    "stabilityai/sd-vae-ft-ema",
+    # "stabilityai/sd-vae-ft-mse",
+    # "stabilityai/sd-vae-ft-ema",
 ]
 
 def create_dataloader(opt, preprocess=None, return_dataset=False):
@@ -48,8 +48,13 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
         trans_func = create_transformations(opt)
 
         VAE = []
+        if opt.pre_vae == "None":
+            batch_vae = False
+        else:
+            batch_vae = True
+            
         for vae_path in vae_path_list:
-            vae = VAETransform(opt.gpu_ids[0], vae_model_path=vae_path)
+            vae = VAETransform(opt.gpu_ids[0], vae_model_path=vae_path, batch_process=batch_vae)
             VAE.append(vae)
         # XL_VAE = VAETransform(opt.gpu_ids[0], vae_model_path="stabilityai/sdxl-vae")
         # MSE_VAE = VAETransform(opt.gpu_ids[0], vae_model_path="stabilityai/sd-vae-ft-mse")
@@ -72,7 +77,7 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
                                                 batch_size=opt.batch_size,
                                                 shuffle=shuffle if sampler is None else False,
                                                 sampler=sampler,
-                                                num_workers=int(opt.num_threads),
+                                                num_workers=opt.num_threads,
                                                 pin_memory=True,
                                                 drop_last=opt.isTrain,)
         return data_loader

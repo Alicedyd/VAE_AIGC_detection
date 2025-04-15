@@ -297,8 +297,12 @@ def create_transformations(opt):
     elif opt.pre_vae == "padding":
         # 将图像通过padding调整为统一大小
         unify_size_func = lambda batch_img: batch_unify_size_padding(batch_img)
-    else:
+    elif opt.pre_vae == "crop":
+        unify_size_func = BatchRandomCrop(opt.cropSize)
+    elif opt.pre_vae == "None":
         unify_size_func = lambda batch_img: batch_img
+    else:
+        raise NotImplementedError("Not Implemented pre vae method")
     transforms_list.append(unify_size_func)
 
     # 数据增强

@@ -1,11 +1,11 @@
 python train.py \
-    --name drct_detection_dino_vae_offline_single_crop \
-    --real_list_path /root/autodl-tmp/AIGC_data/MSCOCO/ \
-    --fake_list_path /root/autodl-tmp/AIGC_data/MSCOCO_XL_CROP \
+    --name drct_detection_dino_vae_offline_single \
+    --real_list_path /root/autodl-tmp/AIGC_data/MSCOCO\
+    --fake_list_path /root/autodl-tmp/AIGC_data/MSCOCO_VAE_XL \
     --data_mode=mscoco \
     --arch=DINOv2-LoRA:dinov2_vitl14 \
     --fix_backbone \
-    --batch_size=32 \
+    --batch_size=1 \
     --lr=0.0005 \
     --optim=adam \
     --niter=1 \

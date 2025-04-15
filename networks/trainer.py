@@ -77,6 +77,8 @@ from networks.base_model import BaseModel, init_weights
 import sys
 from models import get_model
 
+from pytorch_metric_learning import losses
+
 class Trainer(BaseModel):
     def name(self):
         return 'Trainer'
@@ -135,6 +137,11 @@ class Trainer(BaseModel):
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer,eta_min=opt.lr * 0.001, T_max=1000)
         self.loss_fn = nn.BCEWithLogitsLoss()
 
+        self.contrastive = opt.contrastive
+        if self.contrastive:
+            self.contrastive_loss_fn = losses.ContrastiveLoss(pos_margin=0.0, neg_margin=1.0)
+            self.contrastive_alpha = 0.5
+
         if hasattr(opt, 'device'):
             self.device = opt.device
         self.model.to(self.device)
@@ -151,7 +158,10 @@ class Trainer(BaseModel):
         self.label = input[1].to(self.device).float()
 
     def forward(self):
-        self.output = self.model(self.input)
+        if self.contrastive:
+            self.feature, self.output = self.model(self.input, return_feature=True)
+        else:
+            self.output = self.model(self.input)
         if hasattr(self.output, 'view'):  
             self.output = self.output.view(-1).unsqueeze(1)
 
@@ -160,6 +170,8 @@ class Trainer(BaseModel):
 
     def optimize_parameters(self):
         self.forward()
+        if self.contrastive:
+            self.loss = (1 - self.contrastive_alpha) * self.loss_fn(self.output.squeeze(1), self.label) + self.contrastive_alpha * self.contrastive_loss_fn(self.feature, self.label)
         self.loss = self.loss_fn(self.output.squeeze(1), self.label) 
         self.optimizer.zero_grad()
         self.loss.backward()
