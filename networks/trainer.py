@@ -154,8 +154,12 @@ class Trainer(BaseModel):
         return True
 
     def set_input(self, input):
-        self.input = input[0].to(self.device)
-        self.label = input[1].to(self.device).float()
+        if len(input) == 2:
+            self.input = input[0].to(self.device)
+            self.label = input[1].to(self.device).float()
+        else:
+            self.input = torch.cat((input[0].to(self.device), input[1].to(self.device)), dim=0)
+            self.label = torch.cat((input[2].to(self.device).float(), input[3].to(self.device).float()), dim=0)
 
     def forward(self):
         if self.contrastive:

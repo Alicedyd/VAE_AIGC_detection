@@ -2,7 +2,7 @@ import os
 import time
 from tensorboardX import SummaryWriter
 
-from validate import validate
+from validate import validate, RealFakeDataset
 from data import create_dataloader
 from earlystop import EarlyStopping
 from networks.trainer import Trainer
@@ -41,7 +41,11 @@ if __name__ == '__main__':
     model = Trainer(opt)
     
     data_loader = create_dataloader(opt)
-    val_loader = create_dataloader(val_opt)
+    val_loader = RealFakeDataset(   opt.real_list_path, 
+                                    opt.fake_list_path, 
+                                    opt.data_mode, 
+                                    1000, 
+                                    opt.arch,)
 
     train_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "train"))
     val_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "val"))

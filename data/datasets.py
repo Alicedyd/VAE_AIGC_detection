@@ -323,50 +323,43 @@ class RealFakeDataset(Dataset):
                 print(temp)
                 real_list += get_list( os.path.join(opt.wang2020_data_path, temp), must_contain='0_real' )
                 fake_list += get_list( os.path.join(opt.wang2020_data_path, temp), must_contain='1_fake' )
-
-            if opt.chameleon:
-                temp = 'train' if opt.data_label == 'train' else 'val'
-                print(f"chameleon/{temp}")
-                real_chameleon_list = get_list( f'/root/autodl-tmp/AIGC_data/Chameleon/{temp}', must_contain='0_real' )
-                fake_chameleon_list = get_list( f'/root/autodl-tmp/AIGC_data/Chameleon/{temp}', must_contain='1_fake' )
         elif opt.data_mode == 'mscoco':
             temp = 'train' if opt.data_label == 'train' else 'val'
-            print(opt.real_list_path)
-            # print(opt.fake_list_path)
-            real_list = get_list( os.path.join(opt.real_list_path, f'{temp}2017') )
-            # fake_list = get_list( os.path.join(opt.fake_list_path, f'{temp}2017') )
+            real_list = get_list(os.path.join(opt.real_list_path, f'{temp}2017'))
+            real_list.sort()
+
+            # 多个子域的 fake_list
             fake_list_paths = opt.fake_list_path.split(',')
             fake_list = []
             for fake_list_path in fake_list_paths:
-                print(fake_list_path)
-                fake_list += get_list( os.path.join(fake_list_path, f'{temp}2017') )
+                path_list = get_list(os.path.join(fake_list_path, f'{temp}2017'))
+                path_list.sort()
+                assert len(path_list) == len(real_list), "Mismatch in real and fake list length"
+                fake_list.append(path_list)
+
+            # 一致打乱
+            indices = list(range(len(real_list)))
+            rd.shuffle(indices)
+
+            self.real_list = [real_list[i] for i in indices]
+            self.fake_list = []
+            for i in range(len(fake_list)):  # 对每个子域
+                self.fake_list.append([fake_list[i][j] for j in indices])
+
         print(len(real_list))
 
 
 
         # setting the labels for the dataset
-        self.labels_dict = {}
-        for i in real_list:
-            self.labels_dict[i] = 0
-        for i in fake_list:
-            self.labels_dict[i] = 1
-            
-        if opt.chameleon:
-            self.chameleon_labels_dict = {}
-            for i in real_chameleon_list:
-                self.chameleon_labels_dict[i] = 0
-            for i in fake_chameleon_list:
-                self.chameleon_labels_dict[i] = 1
+        # self.labels_dict = {}
+        # for i in real_list:
+        #     self.labels_dict[i] = 0
+        # for i in fake_list:
+        #     self.labels_dict[i] = 1
 
-        self.chameleon = opt.chameleon
-        self.chameleon_freq = opt.chameleon_freq
+        # self.total_list = real_list + fake_list
+        # shuffle(self.total_list)
 
-        self.total_list = real_list + fake_list
-        self.chameleon_list = real_chameleon_list + fake_chameleon_list if opt.chameleon else []
-        shuffle(self.total_list)
-        shuffle(self.chameleon_list)
-
-        target_size = (opt.cropSize, opt.cropSize)
         if opt.isTrain:
             crop_func = PadRandomCrop(opt.cropSize)
         elif opt.no_crop:
@@ -397,7 +390,8 @@ class RealFakeDataset(Dataset):
 
 
     def __len__(self):
-        return len(self.total_list)
+        # return len(self.total_list)
+        return len(self.real_list)
 
 
     def __getitem__(self, idx):
@@ -406,21 +400,44 @@ class RealFakeDataset(Dataset):
         
         for _ in range(max_attempts):
             try:
-                if self.chameleon and (current_idx % self.chameleon_freq) == 0:
-                    img_path = self.chameleon_list[(current_idx // self.chameleon_freq) % len(self.chameleon_list)]
-                    label = self.chameleon_labels_dict[img_path]
-                else:
-                    img_path = self.total_list[current_idx]
-                    label = self.labels_dict[img_path]
-                img = Image.open(img_path).convert("RGB")
-                img = self.transform(img)
-                return img, label
+                # if self.chameleon and (current_idx % self.chameleon_freq) == 0:
+                #     img_path = self.chameleon_list[(current_idx // self.chameleon_freq) % len(self.chameleon_list)]
+                #     label = self.chameleon_labels_dict[img_path]
+                # else:
+                #     img_path = self.total_list[current_idx]
+                #     label = self.labels_dict[img_path]
+                # img = Image.open(img_path).convert("RGB")
+                # img = self.transform(img)
+                # return img, label
+
+                real_img_path = self.real_list[current_idx]
+                real_label = 0
+
+                current_fake_list = rd.choice(self.fake_list)
+                fake_img_path = current_fake_list[current_idx]
+                fake_label = 1
+
+                real_img = Image.open(real_img_path).convert("RGB")
+                fake_img = Image.open(fake_img_path).convert("RGB")
+
+                # Save random state before transformations
+                random_state = torch.get_rng_state()
+                numpy_state = np.random.get_state()
+                python_state = rd.getstate()
+
+                real_img = self.transform(real_img)
+
+                # Restore random state before transforming second image
+                torch.set_rng_state(random_state)
+                np.random.set_state(numpy_state)
+                rd.setstate(python_state)
+
+                fake_img = self.transform(fake_img)
+
+                return real_img, fake_img, real_label, fake_label
                 
             except Exception as e:
-                if self.chameleon and (current_idx % self.chameleon_freq) == 0:
-                    print(f"加载图像出错 {self.chameleon_list[(current_idx // self.chameleon_freq) % len(self.chameleon_list)]}: {e}")
-                else:
-                    print(f"加载图像出错 {self.total_list[current_idx]}: {e}")
+                print(f"加载图像出错 {self.total_list[current_idx]}: {e}")
                 current_idx = (current_idx + 1) % len(self.total_list)
         
         print(f"警告: 多次尝试后仍无法加载有效图像，返回空白图像")

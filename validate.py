@@ -99,18 +99,37 @@ def calculate_acc(y_true, y_pred, thres):
     return r_acc, f_acc, acc    
 
 
-def validate(model, loader, find_thres=False, gpu_id=None):
+def validate(model, loader, find_thres=False, gpu_id=None, save_incorrect=False, save_dir=None):
 
     with torch.no_grad():
         y_true, y_pred = [], []
         print ("Length of dataset: %d" %(len(loader)))
+
+        # Get image paths from dataset
+        if save_incorrect:
+            paths = loader.dataset.total_list
+
+        img_idx = 0
+        incorrect_fake_indices = []
+
         for img, label in loader:
             if gpu_id is not None:
                 in_tens = img.cuda(gpu_id)
             else:
                 in_tens = img.cuda()
 
-            y_pred.extend(model(in_tens).sigmoid().flatten().tolist())
+            batch_preds = model(in_tens, return_feature=False).sigmoid().flatten().tolist()
+            batch_size = len(batch_preds)
+            
+            # Check for incorrect fake predictions in this batch
+            if save_incorrect:
+                for i in range(batch_size):
+                    if label[i] == 1 and batch_preds[i] < 0.5:  # Fake classified as real
+                        incorrect_fake_indices.append(img_idx + i)
+
+            img_idx += batch_size
+
+            y_pred.extend(batch_preds)
             y_true.extend(label.flatten().tolist())
 
     y_true, y_pred = np.array(y_true), np.array(y_pred)
@@ -125,6 +144,41 @@ def validate(model, loader, find_thres=False, gpu_id=None):
 
     # Acc based on 0.5
     r_acc0, f_acc0, acc0 = calculate_acc(y_true, y_pred, 0.5)
+
+    # Save misclassified fake images
+    if save_incorrect and len(incorrect_fake_indices) > 0:
+        # print(f"Saving {len(incorrect_fake_indices)} misclassified fake images to {save_dir}")
+
+        os.makedirs(save_dir, exist_ok=True)
+
+        if len(incorrect_fake_indices) > 10:
+            incorrect_fake_indices = incorrect_fake_indices[:10]
+        
+        # Create a CSV file to log the misclassifications
+        csv_path = os.path.join(save_dir, "misclassified_fake_results.csv")
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['image_path', 'true_label', 'prediction_score'])
+            
+            for idx in incorrect_fake_indices:
+                img_path = paths[idx]
+                score = y_pred[idx]
+                
+                # Save the image
+                try:
+                    # Copy the image to the save directory
+                    filename = os.path.basename(img_path)
+                    dest_path = os.path.join(save_dir, filename)
+                    shutil.copy(img_path, dest_path)
+                    
+                    # Log to CSV
+                    writer.writerow([img_path, 1, score])
+                except Exception as e:
+                    print(f"Error saving misclassified image {img_path}: {str(e)}")
+        
+        print(f"Misclassified fake images saved to {save_dir}")
+        print(f"Log file saved to {csv_path}")
+    
     if not find_thres:
         return ap, r_acc0, f_acc0, acc0
 
@@ -219,7 +273,10 @@ class RealFakeDataset(Dataset):
             fake_list = get_list(fake_path, must_contain='1_fake')
         else:
             real_list = get_list(real_path)
-            fake_list = get_list(fake_path)
+            fake_list = []
+            fake_path_list = fake_path.split(",")
+            for fake_path in fake_path_list:
+                fake_list += get_list(fake_path)
 
         def filter_by_resolution(image_list):
             if self.resolution_thres is None:
@@ -307,6 +364,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--gpu_id', type=int, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
 
+    parser.add_argument('--save_bad_case', action="store_true")
+
     parser.add_argument('--lora_rank', type=int, default=8, help='LoRA rank')
     parser.add_argument('--lora_alpha', type=float, default=1.0, help='LoRA scaling factor')
     parser.add_argument('--lora_targets', type=str, default=None, help='LoRA trainable targets')
@@ -364,7 +423,8 @@ if __name__ == '__main__':
                                     )
 
         loader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=False, num_workers=4)
-        ap, r_acc0, f_acc0, acc0, r_acc1, f_acc1, acc1, best_thres = validate(model, loader, find_thres=True, gpu_id=opt.gpu_id)
+        save_dir = os.path.join(opt.result_folder, f"bad_case/{dataset_path['key']}")
+        ap, r_acc0, f_acc0, acc0, r_acc1, f_acc1, acc1, best_thres = validate(model, loader, find_thres=True, gpu_id=opt.gpu_id, save_incorrect=opt.save_bad_case, save_dir=save_dir)
 
         print("(Val {}) r_acc: {}; f_acc: {}, acc: {}, ap: {}".format(dataset_path['key'], r_acc0, f_acc0, acc0, ap))
 
@@ -378,4 +438,11 @@ if __name__ == '__main__':
 
         with open( os.path.join(opt.result_folder,'acc0.txt'), 'a') as f:
             f.write(dataset_path['key']+': ' + str(round(r_acc0*100, 2))+'  '+str(round(f_acc0*100, 2))+'  '+str(round(acc0*100, 2))+'\n' )
+
+    # 所有数据集测试完成后进行csv转置
+    import pandas as pd
+
+    df = pd.read_csv(csv_file, header=None)
+
+    df.T.to_csv(csv_file, index=False, header=False)
 

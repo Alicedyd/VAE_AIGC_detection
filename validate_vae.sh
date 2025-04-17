@@ -3,12 +3,22 @@
 # 模型相关设置
 DATA_MODE="ours"
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/coco_dino_vae_single/model_iters_2000.pth"
-RESULT_FOLDER="./result/dino_vae_single/"
+CKPT="./checkpoints/coco_dino_vae_single_resize/model_epoch_0.pth"
+RESULT_FOLDER="./result/coco_dino_vae_single_resize/"
 LORA_RANK=8
 LORA_ALPHA=1
 JPEG_QUALITY=95
-GPU_ID=3
+GPU_ID=2
+
+SAVE_BAD_CASE=true
+
+OPT_FLAGS=""
+$SAVE_BAD_CASE && OPT_FLAGS+=" --save_bad_case"
+
+# 初始化路径和key字符串
+REAL_PATHS=()
+FAKE_PATHS=()
+KEYS=()
 
 # DRCT-2M 数据集设置
 # 数据集根目录
@@ -35,35 +45,39 @@ DATASETS=( \
     "stable-diffusion-xl-1.0-inpainting-0.1:sdxl-inpainting" \
 ) 
 
-# # GenImage 数据集设置
-# BASE_NAME="GenImage"
-# BASE_PATH="/root/autodl-tmp/AIGC_data/GenImage"
-
-# # 数据集子目录和对应的 key
-# DATASETS=( \
-#     "ADM:ADM" \
-#     "BigGAN:BigGAN" \
-#     "glide:glide" \
-#     "Midjourney:Midjourney" \
-#     "stable_diffusion_v_1_4:sd14" \
-#     "stable_diffusion_v_1_5:sd15" \
-#     "VQDM:VQDM" \
-#     "wukong:wukong" \
-# ) 
-
-# 初始化路径和key字符串
-REAL_PATHS=()
-FAKE_PATHS=()
-KEYS=()
-
 for ds in "${DATASETS[@]}"; do
     IFS=":" read -r NAME KEY <<< "$ds"
     REAL_PATHS+=("/root/autodl-tmp/AIGC_data/MSCOCO/val2017")
     FAKE_PATHS+=("$BASE_PATH/$NAME/val2017")
-    # REAL_PATHS+=("$BASE_PATH/$NAME/val/nature")
-    # FAKE_PATHS+=("$BASE_PATH/$NAME/val/ai")
     KEYS+=("$BASE_NAME/$KEY")
 done
+
+# GenImage 数据集设置
+BASE_NAME="GenImage"
+BASE_PATH="/root/autodl-tmp/AIGC_data/GenImage"
+
+# 数据集子目录和对应的 key
+DATASETS=( \
+    "ADM:ADM" \
+    "BigGAN:BigGAN" \
+    "glide:glide" \
+    "Midjourney:Midjourney" \
+    "stable_diffusion_v_1_4:sd14" \
+    "stable_diffusion_v_1_5:sd15" \
+    "VQDM:VQDM" \
+    "wukong:wukong" \
+) 
+
+for ds in "${DATASETS[@]}"; do
+    IFS=":" read -r NAME KEY <<< "$ds"
+    REAL_PATHS+=("$BASE_PATH/$NAME/val/nature")
+    FAKE_PATHS+=("$BASE_PATH/$NAME/val/ai")
+    KEYS+=("$BASE_NAME/$KEY")
+done
+
+REAL_PATHS+=("/root/autodl-tmp/AIGC_data/Chameleon/test/0_real")
+FAKE_PATHS+=("/root/autodl-tmp/AIGC_data/Chameleon/test/1_fake")
+KEYS+=("Chameleon")
 
 # 拼接成逗号分隔的字符串
 REAL_PATH=$(IFS=, ; echo "${REAL_PATHS[*]}")
@@ -86,4 +100,5 @@ python validate.py \
     --result_folder="$RESULT_FOLDER" \
     --lora_rank="$LORA_RANK" \
     --lora_alpha="$LORA_ALPHA" \
-    --gpu_id "$GPU_ID"
+    --gpu_id "$GPU_ID" \
+    $OPT_FLAGS
