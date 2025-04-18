@@ -3,8 +3,8 @@
 # 模型相关设置
 DATA_MODE="ours"
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/coco_dino_vae_single_resize/model_epoch_0.pth"
-RESULT_FOLDER="./result/coco_dino_vae_single_resize/"
+CKPT="./checkpoints/coco_dino_vae_single_none_contrastive/model_iters_100.pth"
+RESULT_FOLDER="./result/coco_dino_vae_single_none_contrastive/"
 LORA_RANK=8
 LORA_ALPHA=1
 JPEG_QUALITY=95

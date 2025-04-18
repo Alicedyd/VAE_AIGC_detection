@@ -1,5 +1,5 @@
 python train.py \
-    --name coco_dino_vae_multi_offline_pair_contrastive \
+    --name debug \
     --real_list_path /root/autodl-tmp/AIGC_data/MSCOCO\
     --fake_list_path /root/autodl-tmp/AIGC_data/MSCOCO_XL,/root/autodl-tmp/AIGC_data/MSCOCO_EMA,/root/autodl-tmp/AIGC_data/MSCOCO_MSE \
     --data_mode=mscoco \

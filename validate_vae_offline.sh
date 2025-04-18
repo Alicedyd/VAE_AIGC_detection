@@ -3,8 +3,8 @@
 # 模型相关设置
 DATA_MODE="ours"
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/coco_dino_vae_single_offline_pair/model_epoch_0.pth"
-RESULT_FOLDER="./result/coco_dino_vae_single_offline_pair/"
+CKPT="./checkpoints/coco_dino_vae_multi_offline_pair_contrastive/model_epoch_0.pth"
+RESULT_FOLDER="./result/coco_dino_vae_multi_offline_pair_contrastive/"
 LORA_RANK=8
 LORA_ALPHA=1
 JPEG_QUALITY=95

@@ -4,7 +4,7 @@ from torch.utils.data.sampler import WeightedRandomSampler
 
 from .datasets import CustomBatchSampler, RealFakeDataset
 from .transforms import create_transformations
-from .vae import VAETransform, DoNothing
+from .vae import VAETransform, VAERebuilder, DoNothing
 
 def get_bal_sampler(dataset):
     targets = []
@@ -54,7 +54,8 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
             batch_vae = True
             
         for vae_path in vae_path_list:
-            vae = VAETransform(opt.gpu_ids[0], vae_model_path=vae_path, batch_process=batch_vae)
+            # vae = VAETransform(opt.gpu_ids[0], vae_model_path=vae_path, batch_process=batch_vae)
+            vae = VAERebuilder(opt.gpu_ids[0], vae_model_path=vae_path)
             VAE.append(vae)
         # XL_VAE = VAETransform(opt.gpu_ids[0], vae_model_path="stabilityai/sdxl-vae")
         # MSE_VAE = VAETransform(opt.gpu_ids[0], vae_model_path="stabilityai/sd-vae-ft-mse")

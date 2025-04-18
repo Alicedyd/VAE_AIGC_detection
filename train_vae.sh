@@ -26,8 +26,8 @@ USE_VAE=true            # 是否启用VAE
 VAE_PREPROCESS="None"   # VAE预处理方式
 
 # 实验配置
-EXP_NAME="coco_dino_vae_single_none"  # 实验名称
-USE_CONTRASTIVE=false    # 启用对比学习
+EXP_NAME="coco_dino_vae_single_none_contrastive"  # 实验名称
+USE_CONTRASTIVE=true    # 启用对比学习
 
 ###############################
 ### 用户可配置参数区域 END   ###

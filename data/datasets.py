@@ -153,7 +153,7 @@ class CustomBatchSampler:
         shuffle(self.real_list)
         shuffle(self.fake_list)
         self.iteration = 0
-        
+
     def __next__(self):
         """返回一个批次的处理后数据"""
         # # 随机选择索引
@@ -192,7 +192,7 @@ class CustomBatchSampler:
         for idx in range(self.iteration * (self.batch_size // 2), (self.iteration + 1) * (self.batch_size // 2)):
             try:
                 # 加载图像
-                img_path = self.fake_list[idx]
+                img_path = self.real_list[idx]
                 label = 1
                 
                 # 打开并转换图像
@@ -216,11 +216,21 @@ class CustomBatchSampler:
 
         # 批量transform和vae
 
+        # Save random state before transformations
+        random_state = torch.get_rng_state()
+        numpy_state = np.random.get_state()
+        python_state = rd.getstate()
         for trans in self.transform_funcs:
+            torch.set_rng_state(random_state)
+            np.random.set_state(numpy_state)
+            rd.setstate(python_state)
             batch_real_images = trans(batch_real_images)
 
         vae_transform_funcs = rd.choice(self.vae_transform_funcs_list)
         for trans in vae_transform_funcs:
+            torch.set_rng_state(random_state)
+            np.random.set_state(numpy_state)
+            rd.setstate(python_state)
             batch_fake_images = trans(batch_fake_images)
      
         # 堆叠为张量
@@ -437,8 +447,8 @@ class RealFakeDataset(Dataset):
                 return real_img, fake_img, real_label, fake_label
                 
             except Exception as e:
-                print(f"加载图像出错 {self.total_list[current_idx]}: {e}")
-                current_idx = (current_idx + 1) % len(self.total_list)
+                print(f"加载图像出错 {self.real_list[current_idx]}: {e}")
+                current_idx = (current_idx + 1) % len(self.real_list)
         
         print(f"警告: 多次尝试后仍无法加载有效图像，返回空白图像")
         blank_img = torch.zeros(3, 224, 224)

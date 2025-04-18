@@ -2,6 +2,7 @@ import cv2
 import torch
 import numpy as np
 from random import random, choice
+import random as rd
 from PIL import Image, ImageOps
 from scipy.ndimage.filters import gaussian_filter
 from io import BytesIO
@@ -279,7 +280,7 @@ class BatchRandomHorizontalFlip:
         for i in range(batch_size):
             # 对单个图像应用随机翻转
             if torch.rand(1) < self.p:
-                flipped = F.hflip(batch_img[i])
+                flipped = transforms.RandomHorizontalFlip()(batch_img[i])
             else:
                 flipped = batch_img[i]
             result.append(flipped)

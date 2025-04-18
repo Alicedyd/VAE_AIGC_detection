@@ -10,6 +10,19 @@ from options.train_options import TrainOptions
 
 import shutil
 
+import torch
+import random
+import numpy as np
+
+
+def set_seed(seed):
+    random.seed(seed)                     # 控制 torchvision.transforms 等
+    np.random.seed(seed)                  # 控制 numpy 操作
+    torch.manual_seed(seed)               # 控制 torch 操作
+    torch.cuda.manual_seed_all(seed)      # 多卡时也生效
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 """Currently assumes jpg_prob, blur_prob 0 or 1"""
 def get_val_opt():
@@ -35,6 +48,8 @@ def get_val_opt():
 
 
 if __name__ == '__main__':
+    set_seed(42)
+    
     opt = TrainOptions().parse()
     val_opt = get_val_opt()
  
