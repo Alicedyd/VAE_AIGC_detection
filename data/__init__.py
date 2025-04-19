@@ -2,9 +2,9 @@ import torch
 import numpy as np
 from torch.utils.data.sampler import WeightedRandomSampler
 
-from .datasets import CustomBatchSampler, RealFakeDataset
+from .datasets import CustomBatchSampler, RealFakeDataset, custom_collate_fn
 from .transforms import create_transformations
-from .vae import VAETransform, VAERebuilder, DoNothing
+from .vae import VAERebuilder
 
 def get_bal_sampler(dataset):
     targets = []
@@ -39,8 +39,8 @@ def get_bal_sampler(dataset):
 
 vae_path_list = [
     "stabilityai/sdxl-vae",
-    # "stabilityai/sd-vae-ft-mse",
-    # "stabilityai/sd-vae-ft-ema",
+    "stabilityai/sd-vae-ft-mse",
+    "stabilityai/sd-vae-ft-ema",
 ]
 
 def create_dataloader(opt, preprocess=None, return_dataset=False):
@@ -48,10 +48,6 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
         trans_func = create_transformations(opt)
 
         VAE = []
-        if opt.pre_vae == "None":
-            batch_vae = False
-        else:
-            batch_vae = True
             
         for vae_path in vae_path_list:
             # vae = VAETransform(opt.gpu_ids[0], vae_model_path=vae_path, batch_process=batch_vae)
@@ -66,6 +62,10 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
     
     else:
         shuffle = not opt.serial_batches if (opt.isTrain and not opt.class_bal) else False
+
+        fake_num = len(opt.fake_list_path.split(","))
+        batch_size = opt.batch_size // ( 1 +fake_num )
+
         dataset = RealFakeDataset(opt)
         if '2b' in opt.arch:
             dataset.transform = preprocess
@@ -75,10 +75,11 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
             return dataset
         
         data_loader = torch.utils.data.DataLoader(dataset,
-                                                batch_size=opt.batch_size,
+                                                batch_size=batch_size,
                                                 shuffle=shuffle if sampler is None else False,
                                                 sampler=sampler,
                                                 num_workers=opt.num_threads,
                                                 pin_memory=True,
-                                                drop_last=opt.isTrain,)
+                                                drop_last=opt.isTrain,
+                                                collate_fn=custom_collate_fn,)
         return data_loader

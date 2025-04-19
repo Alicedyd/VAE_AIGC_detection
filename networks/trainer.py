@@ -158,8 +158,19 @@ class Trainer(BaseModel):
             self.input = input[0].to(self.device)
             self.label = input[1].to(self.device).float()
         else:
-            self.input = torch.cat((input[0].to(self.device), input[1].to(self.device)), dim=0)
-            self.label = torch.cat((input[2].to(self.device).float(), input[3].to(self.device).float()), dim=0)
+            # self.input = torch.cat((input[0].to(self.device), input[1].to(self.device)), dim=0)
+            # self.label = torch.cat((input[2].to(self.device).float(), input[3].to(self.device).float()), dim=0)
+            real_imgs = input[0].to(self.device)
+            fake_imgs_list = input[1]
+
+            fake_imgs = torch.cat(fake_imgs_list, dim=0).to(self.device)
+            self.input = torch.cat([real_imgs, fake_imgs], dim=0)
+
+            real_labels = input[2].to(self.device).float()
+            fake_labels_list = input[3]
+
+            fake_labels = torch.cat(fake_labels_list, dim=0).to(self.device)
+            self.label = torch.cat([real_labels, fake_labels], dim=0)
 
     def forward(self):
         if self.contrastive:

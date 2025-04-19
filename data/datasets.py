@@ -16,7 +16,6 @@ from skimage.io import imread
 from copy import deepcopy
 import torch
 
-from .vae import VAETransform, DoNothing
 import torchvision.transforms.functional as F
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -135,6 +134,8 @@ class CustomBatchSampler:
         self.vae_model = vae_model
         self.transform_funcs = transform_funcs
 
+        self.fake_num = len(self.vae_model)
+
         self.vae_transform_funcs_list = []
         for vae in vae_model:
             vae_transform_funcs = transform_funcs.copy()
@@ -160,15 +161,95 @@ class CustomBatchSampler:
         # real_batch_indices = rd.sample(self.indices, self.batch_size // 2)
         # fake_batch_indices = rd.sample(self.indices, self.batch_size // 2)
 
-        batch_real_images = []
-        batch_fake_images = []
-        batch_labels = []
+        # batch_real_images = []
+        # batch_fake_images = []
+        # batch_labels = []
 
-        for idx in range(self.iteration * (self.batch_size // 2), (self.iteration + 1) * (self.batch_size // 2)):
+        # for idx in range(self.iteration * (self.batch_size // 2), (self.iteration + 1) * (self.batch_size // 2)):
+        #     try:
+        #         # 加载图像
+        #         img_path = self.real_list[idx]
+        #         label = 0
+                
+        #         # 打开并转换图像
+        #         img = Image.open(img_path).convert("RGB")
+                
+        #         # # 应用数据变换（裁剪、翻转等）
+        #         # for transform in self.transform_funcs:
+        #         #     img = transform(img)
+                
+        #         # 转换为tensor并归一化
+        #         # if isinstance(img, Image.Image):
+        #         #     img = transforms.ToTensor()(img)
+        #         #     img = transforms.Normalize(mean=MEAN["clip"], std=STD["clip"])(img)
+                
+        #         # 添加到批次
+        #         batch_real_images.append(img)
+        #         batch_labels.append(label)
+                
+        #     except Exception as e:
+        #         print(f"Error processing image {img_path}: {e}")
+
+        # for idx in range(self.iteration * (self.batch_size // 2), (self.iteration + 1) * (self.batch_size // 2)):
+        #     try:
+        #         # 加载图像
+        #         img_path = self.real_list[idx]
+        #         label = 1
+                
+        #         # 打开并转换图像
+        #         img = Image.open(img_path).convert("RGB")
+                
+        #         # # 应用数据变换（裁剪、翻转等）
+        #         # for transform in self.transform_funcs:
+        #         #     img = transform(img)
+                
+        #         # 转换为tensor并归一化
+        #         # if isinstance(img, Image.Image):
+        #         #     img = transforms.ToTensor()(img)
+        #         #     img = transforms.Normalize(mean=MEAN["clip"], std=STD["clip"])(img)
+                
+        #         # 添加到批次
+        #         batch_fake_images.append(img)
+        #         batch_labels.append(label)
+                
+        #     except Exception as e:
+        #         print(f"Error processing image {img_path}: {e}")
+
+        # # 批量transform和vae
+
+        # # Save random state before transformations
+        # random_state = torch.get_rng_state()
+        # numpy_state = np.random.get_state()
+        # python_state = rd.getstate()
+        # for trans in self.transform_funcs:
+        #     torch.set_rng_state(random_state)
+        #     np.random.set_state(numpy_state)
+        #     rd.setstate(python_state)
+        #     batch_real_images = trans(batch_real_images)
+
+        # vae_transform_funcs = rd.choice(self.vae_transform_funcs_list)
+        # for trans in vae_transform_funcs:
+        #     torch.set_rng_state(random_state)
+        #     np.random.set_state(numpy_state)
+        #     rd.setstate(python_state)
+        #     batch_fake_images = trans(batch_fake_images)
+     
+        # # 堆叠为张量
+        # real_images_tensor = torch.stack(batch_real_images).cuda(self.gpu_id)
+        # fake_images_tensor = torch.stack(batch_fake_images).cuda(self.gpu_id)
+        # labels_tensor = torch.tensor(batch_labels).cuda(self.gpu_id)
+
+        # images_tensor = torch.cat((real_images_tensor, fake_images_tensor), dim=0)
+
+        # self.iteration += 1
+            
+        # return images_tensor, labels_tensor
+
+        batch_images = []
+        for idx in range(self.iteration * (self.batch_size // (1 + self.fake_num)), (self.iteration + 1) * (self.batch_size // (1 + self.fake_num))):
             try:
                 # 加载图像
                 img_path = self.real_list[idx]
-                label = 0
                 
                 # 打开并转换图像
                 img = Image.open(img_path).convert("RGB")
@@ -183,38 +264,21 @@ class CustomBatchSampler:
                 #     img = transforms.Normalize(mean=MEAN["clip"], std=STD["clip"])(img)
                 
                 # 添加到批次
-                batch_real_images.append(img)
-                batch_labels.append(label)
+                batch_images.append(img)
                 
             except Exception as e:
                 print(f"Error processing image {img_path}: {e}")
 
-        for idx in range(self.iteration * (self.batch_size // 2), (self.iteration + 1) * (self.batch_size // 2)):
-            try:
-                # 加载图像
-                img_path = self.real_list[idx]
-                label = 1
-                
-                # 打开并转换图像
-                img = Image.open(img_path).convert("RGB")
-                
-                # # 应用数据变换（裁剪、翻转等）
-                # for transform in self.transform_funcs:
-                #     img = transform(img)
-                
-                # 转换为tensor并归一化
-                # if isinstance(img, Image.Image):
-                #     img = transforms.ToTensor()(img)
-                #     img = transforms.Normalize(mean=MEAN["clip"], std=STD["clip"])(img)
-                
-                # 添加到批次
-                batch_fake_images.append(img)
-                batch_labels.append(label)
-                
-            except Exception as e:
-                print(f"Error processing image {img_path}: {e}")
+        # 复制出所需的fake份数
+        batch_fake_images_list = []
+        for i in range(self.fake_num):
+            batch_fake_images_list.append(batch_images.copy())
 
-        # 批量transform和vae
+        # 处理label
+        label_list = [0] * len(batch_images)
+        for i in range(self.fake_num):
+            label_list += [1] * len(batch_images)
+        labels_tensor = torch.tensor(label_list)
 
         # Save random state before transformations
         random_state = torch.get_rng_state()
@@ -224,29 +288,35 @@ class CustomBatchSampler:
             torch.set_rng_state(random_state)
             np.random.set_state(numpy_state)
             rd.setstate(python_state)
-            batch_real_images = trans(batch_real_images)
+            batch_images = trans(batch_images)
 
-        vae_transform_funcs = rd.choice(self.vae_transform_funcs_list)
-        for trans in vae_transform_funcs:
-            torch.set_rng_state(random_state)
-            np.random.set_state(numpy_state)
-            rd.setstate(python_state)
-            batch_fake_images = trans(batch_fake_images)
-     
-        # 堆叠为张量
-        real_images_tensor = torch.stack(batch_real_images).cuda(self.gpu_id)
-        fake_images_tensor = torch.stack(batch_fake_images).cuda(self.gpu_id)
-        labels_tensor = torch.tensor(batch_labels).cuda(self.gpu_id)
+        real_images_tensor = torch.stack(batch_images).cuda(self.gpu_id)
+
+        fake_images_tensor_list = []
+        for i in range(self.fake_num):
+            vae_transform_funcs = self.vae_transform_funcs_list[i]
+            batch_fake_images = batch_fake_images_list[i]
+
+            for trans in vae_transform_funcs:
+                torch.set_rng_state(random_state)
+                np.random.set_state(numpy_state)
+                rd.setstate(python_state)
+                batch_fake_images = trans(batch_fake_images)
+            
+            fake_images_tensor_list.append(torch.stack(batch_fake_images))
+
+        fake_images_tensor = torch.cat(fake_images_tensor_list).cuda(self.gpu_id)
 
         images_tensor = torch.cat((real_images_tensor, fake_images_tensor), dim=0)
 
         self.iteration += 1
-            
+
         return images_tensor, labels_tensor
+
     
     def __len__(self):
         """返回一个epoch中的批次数量"""
-        return ( len(self.real_list) // (self.batch_size) ) * (1+len(self.vae_transform_funcs_list))
+        return ( len(self.real_list) // (self.batch_size) ) * (1 + self.fake_num)
 
 # ---------- Offline utils ----------
 
@@ -356,6 +426,8 @@ class RealFakeDataset(Dataset):
             for i in range(len(fake_list)):  # 对每个子域
                 self.fake_list.append([fake_list[i][j] for j in indices])
 
+            self.num_fake = len(self.fake_list)
+
         print(len(real_list))
 
 
@@ -420,31 +492,61 @@ class RealFakeDataset(Dataset):
                 # img = self.transform(img)
                 # return img, label
 
+                # real_img_path = self.real_list[current_idx]
+                # real_label = 0
+
+                # current_fake_list = rd.choice(self.fake_list)
+                # fake_img_path = current_fake_list[current_idx]
+                # fake_label = 1
+
+                # real_img = Image.open(real_img_path).convert("RGB")
+                # fake_img = Image.open(fake_img_path).convert("RGB")
+
+                # # Save random state before transformations
+                # random_state = torch.get_rng_state()
+                # numpy_state = np.random.get_state()
+                # python_state = rd.getstate()
+
+                # real_img = self.transform(real_img)
+
+                # # Restore random state before transforming second image
+                # torch.set_rng_state(random_state)
+                # np.random.set_state(numpy_state)
+                # rd.setstate(python_state)
+
+                # fake_img = self.transform(fake_img)
+
+                # return real_img, fake_img, real_label, fake_label
+                # Get real image
                 real_img_path = self.real_list[current_idx]
-                real_label = 0
-
-                current_fake_list = rd.choice(self.fake_list)
-                fake_img_path = current_fake_list[current_idx]
-                fake_label = 1
-
                 real_img = Image.open(real_img_path).convert("RGB")
-                fake_img = Image.open(fake_img_path).convert("RGB")
-
-                # Save random state before transformations
+                
+                # Store random state for consistent transformations
                 random_state = torch.get_rng_state()
                 numpy_state = np.random.get_state()
                 python_state = rd.getstate()
-
+                
+                # Apply transforms to real image
                 real_img = self.transform(real_img)
-
-                # Restore random state before transforming second image
-                torch.set_rng_state(random_state)
-                np.random.set_state(numpy_state)
-                rd.setstate(python_state)
-
-                fake_img = self.transform(fake_img)
-
-                return real_img, fake_img, real_label, fake_label
+                
+                # Get fake images from all domains
+                fake_imgs = []
+                for idx in range(self.num_fake):
+                    # Get fake image from current domain
+                    fake_img_path = self.fake_list[idx][current_idx]
+                    fake_img = Image.open(fake_img_path).convert("RGB")
+                    
+                    # Restore random state for consistent transformation
+                    torch.set_rng_state(random_state)
+                    np.random.set_state(numpy_state)
+                    rd.setstate(python_state)
+                    
+                    # Apply transforms to fake image
+                    fake_img = self.transform(fake_img)
+                    fake_imgs.append(fake_img)
+                
+                # Return real image, list of fake images, and labels
+                return real_img, fake_imgs, 0, [1] * self.num_fake
                 
             except Exception as e:
                 print(f"加载图像出错 {self.real_list[current_idx]}: {e}")
@@ -453,6 +555,31 @@ class RealFakeDataset(Dataset):
         print(f"警告: 多次尝试后仍无法加载有效图像，返回空白图像")
         blank_img = torch.zeros(3, 224, 224)
         return blank_img, 1 
+
+# for customized batch
+def custom_collate_fn(batch):
+    # batch 是一个 list，每个元素是 __getitem__ 的返回值
+    # 解包
+    real_imgs, fake_imgs_list, labels, domain_labels_list = zip(*batch)
+
+    # real_imgs 是 list[tensor] → stack 成 batch
+    real_imgs = torch.stack(real_imgs, dim=0)  # (B, C, H, W)
+
+    # fake_imgs_list 是 list[list[tensor]]
+    # 转置后变为：num_fake_domains 个 list，每个 list 里是 B 个 tensor
+    fake_imgs_list = list(zip(*fake_imgs_list))
+    fake_imgs = [torch.stack(fake_imgs_per_domain, dim=0) for fake_imgs_per_domain in fake_imgs_list]
+    # fake_imgs: list[tensor]，每个 tensor 形状是 (B, C, H, W)
+
+    # labels 是 tuple[int] → 转成 tensor
+    labels = torch.tensor(labels)
+
+    # domain_labels_list 是 list[list[int]]
+    domain_labels_list = list(zip(*domain_labels_list))
+    domain_labels = [torch.tensor(domain_label_per_domain) for domain_label_per_domain in domain_labels_list]
+    # domain_labels: list[tensor]，每个 tensor 是 (B,)
+
+    return real_imgs, fake_imgs, labels, domain_labels
 
 
 # def get_padding(img_size, target_size):
