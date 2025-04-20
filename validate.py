@@ -373,8 +373,8 @@ if __name__ == '__main__':
     opt = parser.parse_args()
 
     
-    # if os.path.exists(opt.result_folder):
-    #     shutil.rmtree(opt.result_folder)
+    if os.path.exists(opt.result_folder):
+        shutil.rmtree(opt.result_folder)
     os.makedirs(opt.result_folder, exist_ok=True)
 
     lora_args = {}

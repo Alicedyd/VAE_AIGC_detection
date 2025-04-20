@@ -48,7 +48,7 @@ def get_val_opt():
 
 
 if __name__ == '__main__':
-    set_seed(42)
+    # set_seed(42)
     
     opt = TrainOptions().parse()
     val_opt = get_val_opt()

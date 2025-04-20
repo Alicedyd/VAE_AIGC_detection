@@ -417,6 +417,15 @@ class RealFakeDataset(Dataset):
                 assert len(path_list) == len(real_list), "Mismatch in real and fake list length"
                 fake_list.append(path_list)
 
+            
+            if opt.resize_vae:
+                resize_vae_list_paths = opt.resize_vae_path.split(',')
+                resize_vae_list = []
+                for resize_vae_list_path in resize_vae_list_paths: 
+                    resize_vae_list.append(get_list(os.path.join(resize_vae_list_path, f'{temp}2017')))
+                
+                self.resize_vae = opt.resize_vae
+
             # 一致打乱
             indices = list(range(len(real_list)))
             rd.shuffle(indices)
@@ -426,7 +435,15 @@ class RealFakeDataset(Dataset):
             for i in range(len(fake_list)):  # 对每个子域
                 self.fake_list.append([fake_list[i][j] for j in indices])
 
+            if opt.resize_vae:
+                self.resize_vae_list = []
+                for i in range(len(resize_vae_list)):
+                    self.resize_vae_list.append([resize_vae_list[i][j] for j in indices])
+
             self.num_fake = len(self.fake_list)
+
+            self.batch_real_num = opt.batch_size // (1 + self.num_fake)
+            self.batch_fake_num = opt.batch_size - self.batch_real_num
 
         print(len(real_list))
 
@@ -518,8 +535,24 @@ class RealFakeDataset(Dataset):
 
                 # return real_img, fake_img, real_label, fake_label
                 # Get real image
+                img_dict={
+                    'real': None,
+                    'vae_rec':None,
+                    'real_resized': None,
+                    'vae_rec_resized':None,
+                    'batch_real_num': self.batch_real_num,
+                    "batch_fake_num": self.batch_fake_num,
+                }
+
+
                 real_img_path = self.real_list[current_idx]
                 real_img = Image.open(real_img_path).convert("RGB")
+
+                if self.resize_vae:
+                    original_width, original_height = real_img.size
+                    new_width = int(original_width * 0.25)
+                    new_height = int(original_height * 0.25)
+                    real_img_resize = real_img.resize((new_width, new_height), Image.BILINEAR)
                 
                 # Store random state for consistent transformations
                 random_state = torch.get_rng_state()
@@ -528,6 +561,13 @@ class RealFakeDataset(Dataset):
                 
                 # Apply transforms to real image
                 real_img = self.transform(real_img)
+                
+                if self.resize_vae:
+                    torch.set_rng_state(random_state)
+                    np.random.set_state(numpy_state)
+                    rd.setstate(python_state)
+
+                    real_img_resize = self.transform(real_img_resize)
                 
                 # Get fake images from all domains
                 fake_imgs = []
@@ -544,9 +584,32 @@ class RealFakeDataset(Dataset):
                     # Apply transforms to fake image
                     fake_img = self.transform(fake_img)
                     fake_imgs.append(fake_img)
+
+                # get resize vae image
+                if self.resize_vae:
+                    resize_vae_imgs = []
+                    for idx in range(self.num_fake):
+                        resize_vae_img_path = self.resize_vae_list[idx][current_idx]
+                        resize_vae_img =  Image.open(resize_vae_img_path).convert("RGB")
+
+                        # Restore random state for consistent transformation
+                        torch.set_rng_state(random_state)
+                        np.random.set_state(numpy_state)
+                        rd.setstate(python_state)
+                        
+                        # Apply transforms to fake image
+                        resize_vae_img = self.transform(resize_vae_img)
+                        resize_vae_imgs.append(resize_vae_img)
+
+                # use a dict to contain all images
+                img_dict["real"] = real_img
+                img_dict["vae_rec"] = fake_imgs
+                if self.resize_vae:
+                    img_dict["real_resized"] = real_img_resize
+                    img_dict["vae_rec_resized"] = resize_vae_imgs
                 
                 # Return real image, list of fake images, and labels
-                return real_img, fake_imgs, 0, [1] * self.num_fake
+                return img_dict
                 
             except Exception as e:
                 print(f"加载图像出错 {self.real_list[current_idx]}: {e}")
@@ -555,31 +618,57 @@ class RealFakeDataset(Dataset):
         print(f"警告: 多次尝试后仍无法加载有效图像，返回空白图像")
         blank_img = torch.zeros(3, 224, 224)
         return blank_img, 1 
+    
+def custom_collate_fn(batch):
+    real = []
+    vae_rec = []
+    real_resized = []
+    vae_rec_resized = []
+    labels = []
+
+    labels.extend([0] * batch[0]["batch_real_num"])
+    labels.extend([1] * batch[0]["batch_fake_num"])
+
+    for item in batch:
+        real.append(item["real"])
+        vae_rec.extend(item["vae_rec"])  # flatten the fake_imgs list
+
+        if item["real_resized"] is not None:
+            real_resized.append(item["real_resized"])
+        if item["vae_rec_resized"] is not None:
+            vae_rec_resized.extend(item["vae_rec_resized"])
+
+    # Concatenate tensors
+    all_imgs = torch.stack(real + real_resized + vae_rec + vae_rec_resized, dim=0)
+    label_tensor = torch.tensor(labels)
+
+    return all_imgs, label_tensor
+
 
 # for customized batch
-def custom_collate_fn(batch):
-    # batch 是一个 list，每个元素是 __getitem__ 的返回值
-    # 解包
-    real_imgs, fake_imgs_list, labels, domain_labels_list = zip(*batch)
+# def custom_collate_fn(batch):
+#     # batch 是一个 list，每个元素是 __getitem__ 的返回值
+#     # 解包
+#     real_imgs, fake_imgs_list, labels, domain_labels_list = zip(*batch)
 
-    # real_imgs 是 list[tensor] → stack 成 batch
-    real_imgs = torch.stack(real_imgs, dim=0)  # (B, C, H, W)
+#     # real_imgs 是 list[tensor] → stack 成 batch
+#     real_imgs = torch.stack(real_imgs, dim=0)  # (B, C, H, W)
 
-    # fake_imgs_list 是 list[list[tensor]]
-    # 转置后变为：num_fake_domains 个 list，每个 list 里是 B 个 tensor
-    fake_imgs_list = list(zip(*fake_imgs_list))
-    fake_imgs = [torch.stack(fake_imgs_per_domain, dim=0) for fake_imgs_per_domain in fake_imgs_list]
-    # fake_imgs: list[tensor]，每个 tensor 形状是 (B, C, H, W)
+#     # fake_imgs_list 是 list[list[tensor]]
+#     # 转置后变为：num_fake_domains 个 list，每个 list 里是 B 个 tensor
+#     fake_imgs_list = list(zip(*fake_imgs_list))
+#     fake_imgs = [torch.stack(fake_imgs_per_domain, dim=0) for fake_imgs_per_domain in fake_imgs_list]
+#     # fake_imgs: list[tensor]，每个 tensor 形状是 (B, C, H, W)
 
-    # labels 是 tuple[int] → 转成 tensor
-    labels = torch.tensor(labels)
+#     # labels 是 tuple[int] → 转成 tensor
+#     labels = torch.tensor(labels)
 
-    # domain_labels_list 是 list[list[int]]
-    domain_labels_list = list(zip(*domain_labels_list))
-    domain_labels = [torch.tensor(domain_label_per_domain) for domain_label_per_domain in domain_labels_list]
-    # domain_labels: list[tensor]，每个 tensor 是 (B,)
+#     # domain_labels_list 是 list[list[int]]
+#     domain_labels_list = list(zip(*domain_labels_list))
+#     domain_labels = [torch.tensor(domain_label_per_domain) for domain_label_per_domain in domain_labels_list]
+#     # domain_labels: list[tensor]，每个 tensor 是 (B,)
 
-    return real_imgs, fake_imgs, labels, domain_labels
+#     return real_imgs, fake_imgs, labels, domain_labels
 
 
 # def get_padding(img_size, target_size):

@@ -30,6 +30,9 @@ class BaseOptions():
         parser.add_argument('--vae', action='store_true', help='use VAE augmentation')
         parser.add_argument('--pre_vae', default='resize', help='how to unify size before VAE [resize|padding]')
 
+        parser.add_argument('--resize_vae', action="store_true")
+        parser.add_argument('--resize_vae_path', type=str, default="")
+
         parser.add_argument('--contrastive', action='store_true')
          
         parser.add_argument('--real_list_path', default=None, help='only used if data_mode==ours: path for the list of real images, which should contain train.pickle and val.pickle')

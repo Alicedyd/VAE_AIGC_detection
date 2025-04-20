@@ -65,6 +65,8 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
 
         fake_num = len(opt.fake_list_path.split(","))
         batch_size = opt.batch_size // ( 1 +fake_num )
+        if opt.resize_vae:
+            batch_size = batch_size // 2
 
         dataset = RealFakeDataset(opt)
         if '2b' in opt.arch:
