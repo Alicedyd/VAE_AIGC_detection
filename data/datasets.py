@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-import torchvision.transforms.functional as TF
+import torchvision.transforms.functional as F
 from torch.utils.data import Dataset
 import random as rd
 from random import random, choice, shuffle
@@ -15,8 +15,6 @@ import os
 from skimage.io import imread
 from copy import deepcopy
 import torch
-
-import torchvision.transforms.functional as F
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -101,7 +99,7 @@ rz_dict = {'bilinear': Image.BILINEAR,
            'nearest': Image.NEAREST}
 def custom_resize(img, opt):
     interp = sample_discrete(opt.rz_interp)
-    return TF.resize(img, opt.loadSize, interpolation=rz_dict[interp])
+    return F.resize(img, opt.loadSize, interpolation=rz_dict[interp])
 
 
 
@@ -371,126 +369,158 @@ class PadCenterCrop:
         cropped = transforms.CenterCrop(self.size)(img)
             
         return cropped
+    
+class ComposedTransforms:
+    """A composition of image transforms that applies consistently to multiple images"""
+    def __init__(self, transforms_list):
+        self.transforms = transforms_list
+        
+    def __call__(self, images_dict):
+        """
+        Apply transforms to all images in the dictionary
+        
+        Args:
+            images_dict: Dictionary with keys for different image types
+                        (e.g., 'real', 'fake', 'real_resized', 'fake_resized')
+                        
+        Returns:
+            Dictionary with transformed images
+        """
+        # Save random states for consistent transformations
+        random_state = torch.get_rng_state()
+        numpy_state = np.random.get_state()
+        python_state = rd.getstate()
+        
+        result = {}
+        
+        # Apply transforms to each image in the dictionary
+        for key, val in images_dict.items():
+            if val is None:
+                result[key] = None
+                continue
+                
+            if isinstance(val, list):
+                # result[key] = img
+                transformed_imgs = []
+                for i, single_img in enumerate(val):
+                    # Reset random state for each image
+                    torch.set_rng_state(random_state)
+                    np.random.set_state(numpy_state)
+                    rd.setstate(python_state)
+                    
+                    # Apply all transforms
+                    transformed = self.transforms(single_img)
+                    transformed_imgs.append(transformed)
+                result[key] = transformed_imgs
+            elif isinstance(val, Image.Image):
+                # Reset random state
+                torch.set_rng_state(random_state)
+                np.random.set_state(numpy_state)
+                rd.setstate(python_state)
+                
+                # Apply all transforms
+                transformed = self.transforms(val)
+                result[key] = transformed
+            else:
+                result[key] = val
+                
+        return result
 
 
 class RealFakeDataset(Dataset):
     def __init__(self, opt):
         assert opt.data_label in ["train", "val"]
-        #assert opt.data_mode in ["ours", "wang2020", "ours_wang2020"]
-        self.data_label  = opt.data_label
-        if opt.data_mode == 'ours':
-            pickle_name = "train.pickle" if opt.data_label=="train" else "val.pickle"
-            real_list = get_list( os.path.join(opt.real_list_path, pickle_name) )
-            fake_list = get_list( os.path.join(opt.fake_list_path, pickle_name) )
-        elif opt.data_mode == 'wang2020':
-            temp = 'train/progan' if opt.data_label == 'train' else 'test/progan'
-            real_list = get_list( os.path.join(opt.wang2020_data_path,temp), must_contain='0_real' )
-            fake_list = get_list( os.path.join(opt.wang2020_data_path,temp), must_contain='1_fake' )
-        elif opt.data_mode == 'ours_wang2020':
-            pickle_name = "train.pickle" if opt.data_label=="train" else "val.pickle"
-            real_list = get_list( os.path.join(opt.real_list_path, pickle_name) )
-            fake_list = get_list( os.path.join(opt.fake_list_path, pickle_name) )
-            temp = 'train/progan' if opt.data_label == 'train' else 'test/progan'
-            real_list += get_list( os.path.join(opt.wang2020_data_path,temp), must_contain='0_real' )
-            fake_list += get_list( os.path.join(opt.wang2020_data_path,temp), must_contain='1_fake' )    
-        elif opt.data_mode == 'multi_wang2020':
-            temp = 'train/progan' if opt.data_label == 'train' else 'test/progan'
-            real_list = get_list( os.path.join(opt.wang2020_data_path,temp), must_contain='0_real' )
-            fake_list = get_list( os.path.join(opt.wang2020_data_path,temp), must_contain='1_fake' )
-            name = ['adm', 'biggan', 'glide', 'midjourney', 'sdv14', 'sdv15', 'wukong', 'vqdm']
-            for dataset in name:
-                temp = 'train/'+dataset if opt.data_label == 'train' else 'test/'+dataset
-                print(temp)
-                real_list += get_list( os.path.join(opt.wang2020_data_path, temp), must_contain='0_real' )
-                fake_list += get_list( os.path.join(opt.wang2020_data_path, temp), must_contain='1_fake' )
-        elif opt.data_mode == 'mscoco':
-            temp = 'train' if opt.data_label == 'train' else 'val'
-            real_list = get_list(os.path.join(opt.real_list_path, f'{temp}2017'))
-            real_list.sort()
+        self.data_label = opt.data_label
+        
+        # Get dataset split
+        temp = 'train' if opt.data_label == 'train' else 'val'
+        
+        # Get real image paths
+        real_list = get_list(os.path.join(opt.real_list_path, f'{temp}2017'))
+        real_list.sort()
+        
+        # Create mapping to fake and resized paths
+        self.vae_models = opt.vae_models.split(',')
 
-            # 多个子域的 fake_list
-            fake_list_paths = opt.fake_list_path.split(',')
-            fake_list = []
-            for fake_list_path in fake_list_paths:
-                path_list = get_list(os.path.join(fake_list_path, f'{temp}2017'))
-                path_list.sort()
-                assert len(path_list) == len(real_list), "Mismatch in real and fake list length"
-                fake_list.append(path_list)
-
+        self.use_resize = hasattr(opt, 'resize_factors') and opt.resize_factors != ''
+        if self.use_resize:
+            self.resize_factors = [float(f) for f in opt.resize_factors.split(',')]
+        else:
+            self.resize_factors = []
+        
+        # Create a list of data samples, each sample is a dictionary
+        self.data_list = []
+        
+        # Construct the complete dataset
+        for real_path in real_list:
+            # Create a data sample with real path and corresponding fake/resized paths
+            sample = {
+                'real_path': real_path,
+                'fake_paths': [],
+                'fake_resize_paths': []
+            }
             
-            if opt.resize_vae:
-                resize_vae_list_paths = opt.resize_vae_path.split(',')
-                resize_vae_list = []
-                for resize_vae_list_path in resize_vae_list_paths: 
-                    resize_vae_list.append(get_list(os.path.join(resize_vae_list_path, f'{temp}2017')))
+            # Find corresponding fake and resized paths for each VAE model
+            for vae_name in self.vae_models:
+                # Construct fake path by replacing parts of the real path
+                fake_dir = f"{opt.real_list_path}_{vae_name}"
+                fake_path = real_path.replace(opt.real_list_path, fake_dir)
+                fake_path = os.path.splitext(fake_path)[0] + ".png"
+                sample['fake_paths'].append(fake_path)
                 
-                self.resize_vae = opt.resize_vae
-
-            # 一致打乱
-            indices = list(range(len(real_list)))
-            rd.shuffle(indices)
-
-            self.real_list = [real_list[i] for i in indices]
-            self.fake_list = []
-            for i in range(len(fake_list)):  # 对每个子域
-                self.fake_list.append([fake_list[i][j] for j in indices])
-
-            if opt.resize_vae:
-                self.resize_vae_list = []
-                for i in range(len(resize_vae_list)):
-                    self.resize_vae_list.append([resize_vae_list[i][j] for j in indices])
-
-            self.num_fake = len(self.fake_list)
-
-            self.batch_real_num = opt.batch_size // (1 + self.num_fake)
-            self.batch_fake_num = opt.batch_size - self.batch_real_num
-
-        print(len(real_list))
-
-
-
-        # setting the labels for the dataset
-        # self.labels_dict = {}
-        # for i in real_list:
-        #     self.labels_dict[i] = 0
-        # for i in fake_list:
-        #     self.labels_dict[i] = 1
-
-        # self.total_list = real_list + fake_list
-        # shuffle(self.total_list)
-
+                # Construct resized path (if resize factor is not 1.0)
+            if self.use_resize:
+                for resize_factor in self.resize_factors:
+                    resize_dir = f"{opt.real_list_path}_{vae_name}_{resize_factor}"
+                    resize_path = real_path.replace(opt.real_list_path, resize_dir)
+                    resize_path = os.path.splitext(resize_path)[0] + ".png"
+                    sample['fake_resize_paths'].append(resize_path)
+            
+            self.data_list.append(sample)
+        
+        # Shuffle the data list
+        rd.shuffle(self.data_list)
+        
+        # Batch information for collation
+        self.batch_real_num = opt.batch_size // ( (1 + len(self.vae_models)) * (1 + len(self.resize_factors)) )
+        self.batch_fake_num = opt.batch_size - self.batch_real_num
+        
+        # Create transforms
+        # Choose crop function based on mode
         if opt.isTrain:
             crop_func = PadRandomCrop(opt.cropSize)
-        elif opt.no_crop:
-            crop_func = transforms.Lambda(lambda img: img)
+        elif getattr(opt, 'no_crop', False):
+            crop_func = lambda x: x  # No crop
         else:
             crop_func = PadCenterCrop(opt.cropSize)
 
-        if opt.isTrain and not opt.no_flip:
+        # Choose flip function based on mode
+        if opt.isTrain and not getattr(opt, 'no_flip', False):
             flip_func = transforms.RandomHorizontalFlip()
         else:
-            flip_func = transforms.Lambda(lambda img: img)
+            flip_func = lambda x: x  # No flip
 
+        # Choose normalization stats
         stat_from = "imagenet" if opt.arch.lower().startswith("imagenet") else "clip"
-
-        print("mean and std stats are from: ", stat_from)
-        if '2b' not in opt.arch:
-            print ("using Official CLIP's normalization")
-            self.transform = transforms.Compose([
-                transforms.Lambda(lambda img: data_augment(img, opt)),
-                crop_func,
-                flip_func,
-                transforms.ToTensor(),
-                transforms.Normalize( mean=MEAN[stat_from], std=STD[stat_from] ),
-            ])
-        else:
-            print ("Using CLIP 2B transform")
-            self.transform = None # will be initialized in trainer.py
+        print("mean and std stats are from:", stat_from)
+        
+        # Create transform pipeline
+        transform_list = transforms.Compose([
+            transforms.Lambda(lambda img: data_augment(img, opt)),
+            crop_func,
+            flip_func,
+            transforms.ToTensor(),
+            transforms.Normalize( mean=MEAN[stat_from], std=STD[stat_from] ),
+        ])
+        
+        # Create composed transforms
+        self.transform_list = transform_list
+        self.transform = ComposedTransforms(transform_list)
 
 
     def __len__(self):
         # return len(self.total_list)
-        return len(self.real_list)
+        return len(self.data_list)
 
 
     def __getitem__(self, idx):
@@ -499,150 +529,130 @@ class RealFakeDataset(Dataset):
         
         for _ in range(max_attempts):
             try:
-                # if self.chameleon and (current_idx % self.chameleon_freq) == 0:
-                #     img_path = self.chameleon_list[(current_idx // self.chameleon_freq) % len(self.chameleon_list)]
-                #     label = self.chameleon_labels_dict[img_path]
-                # else:
-                #     img_path = self.total_list[current_idx]
-                #     label = self.labels_dict[img_path]
-                # img = Image.open(img_path).convert("RGB")
-                # img = self.transform(img)
-                # return img, label
-
-                # real_img_path = self.real_list[current_idx]
-                # real_label = 0
-
-                # current_fake_list = rd.choice(self.fake_list)
-                # fake_img_path = current_fake_list[current_idx]
-                # fake_label = 1
-
-                # real_img = Image.open(real_img_path).convert("RGB")
-                # fake_img = Image.open(fake_img_path).convert("RGB")
-
-                # # Save random state before transformations
-                # random_state = torch.get_rng_state()
-                # numpy_state = np.random.get_state()
-                # python_state = rd.getstate()
-
-                # real_img = self.transform(real_img)
-
-                # # Restore random state before transforming second image
-                # torch.set_rng_state(random_state)
-                # np.random.set_state(numpy_state)
-                # rd.setstate(python_state)
-
-                # fake_img = self.transform(fake_img)
-
-                # return real_img, fake_img, real_label, fake_label
-                # Get real image
-                img_dict={
+                # Get sample data
+                sample = self.data_list[current_idx]
+                
+                # Create image dictionary
+                img_dict = {
                     'real': None,
-                    'vae_rec':None,
-                    'real_resized': None,
-                    'vae_rec_resized':None,
+                    'fake': [],
+                    'real_resized': [],
+                    'fake_resized': [],
                     'batch_real_num': self.batch_real_num,
-                    "batch_fake_num": self.batch_fake_num,
+                    'batch_fake_num': self.batch_fake_num,
                 }
-
-
-                real_img_path = self.real_list[current_idx]
+                
+                # Load real image
+                real_img_path = sample['real_path']
                 real_img = Image.open(real_img_path).convert("RGB")
-
-                if self.resize_vae:
-                    original_width, original_height = real_img.size
-                    new_width = int(original_width * 0.25)
-                    new_height = int(original_height * 0.25)
-                    real_img_resize = real_img.resize((new_width, new_height), Image.BILINEAR)
+                img_dict['real'] = real_img
                 
-                # Store random state for consistent transformations
-                random_state = torch.get_rng_state()
-                numpy_state = np.random.get_state()
-                python_state = rd.getstate()
+                # Load fake images
+                for fake_path in sample['fake_paths']:
+                    try:
+                        fake_img = Image.open(fake_path).convert("RGB")
+                        img_dict['fake'].append(fake_img)
+                    except Exception as e:
+                        print(f"Error loading fake image {fake_path}: {e}")
+                        # Use a copy of the real image as fallback
+                        img_dict['fake'].append(real_img.copy())
                 
-                # Apply transforms to real image
-                real_img = self.transform(real_img)
-                
-                if self.resize_vae:
-                    torch.set_rng_state(random_state)
-                    np.random.set_state(numpy_state)
-                    rd.setstate(python_state)
-
-                    real_img_resize = self.transform(real_img_resize)
-                
-                # Get fake images from all domains
-                fake_imgs = []
-                for idx in range(self.num_fake):
-                    # Get fake image from current domain
-                    fake_img_path = self.fake_list[idx][current_idx]
-                    fake_img = Image.open(fake_img_path).convert("RGB")
+                if self.use_resize:
+                    # Create resized version of real image
+                    for resize_factor in self.resize_factors:
+                        w, h = real_img.size
+                        new_w = int(w * resize_factor)
+                        new_h = int(h * resize_factor)
+                        real_resized = real_img.resize((new_w, new_h), Image.BILINEAR)
+                        img_dict['real_resized'].append(real_resized)
                     
-                    # Restore random state for consistent transformation
-                    torch.set_rng_state(random_state)
-                    np.random.set_state(numpy_state)
-                    rd.setstate(python_state)
-                    
-                    # Apply transforms to fake image
-                    fake_img = self.transform(fake_img)
-                    fake_imgs.append(fake_img)
-
-                # get resize vae image
-                if self.resize_vae:
-                    resize_vae_imgs = []
-                    for idx in range(self.num_fake):
-                        resize_vae_img_path = self.resize_vae_list[idx][current_idx]
-                        resize_vae_img =  Image.open(resize_vae_img_path).convert("RGB")
-
-                        # Restore random state for consistent transformation
-                        torch.set_rng_state(random_state)
-                        np.random.set_state(numpy_state)
-                        rd.setstate(python_state)
-                        
-                        # Apply transforms to fake image
-                        resize_vae_img = self.transform(resize_vae_img)
-                        resize_vae_imgs.append(resize_vae_img)
-
-                # use a dict to contain all images
-                img_dict["real"] = real_img
-                img_dict["vae_rec"] = fake_imgs
-                if self.resize_vae:
-                    img_dict["real_resized"] = real_img_resize
-                    img_dict["vae_rec_resized"] = resize_vae_imgs
+                    # Load fake resized images
+                    for fake_resize_path in sample['fake_resize_paths']:
+                        if fake_resize_path is not None:
+                            try:
+                                fake_resize_img = Image.open(fake_resize_path).convert("RGB")
+                                img_dict['fake_resized'].append(fake_resize_img)
+                            except Exception as e:
+                                print(f"Error loading fake resized image {fake_resize_path}: {e}")
+                                # Create a fallback resized image
+                                if img_dict['real_resized'] is not None:
+                                    img_dict['fake_resized'].append(img_dict['real_resized'].copy())
+                                else:
+                                    # Skip this one if no resized reference
+                                    img_dict['fake_resized'].append(None)
+                        else:
+                            img_dict['fake_resized'].append(None)
                 
-                # Return real image, list of fake images, and labels
-                return img_dict
+                # Apply transforms to all images
+                transformed_dict = self.transform(img_dict)
+                
+                return transformed_dict
                 
             except Exception as e:
-                print(f"加载图像出错 {self.real_list[current_idx]}: {e}")
-                current_idx = (current_idx + 1) % len(self.real_list)
+                print(f"Error processing image at index {current_idx}: {e}")
+                current_idx = (current_idx + 1) % len(self.data_list)
         
-        print(f"警告: 多次尝试后仍无法加载有效图像，返回空白图像")
-        blank_img = torch.zeros(3, 224, 224)
-        return blank_img, 1 
+        # Return empty tensors if all attempts fail
+        print(f"Warning: Failed to load valid images after {max_attempts} attempts")
+        empty_dict = {
+            'real': torch.zeros(3, 224, 224),
+            'fake': [torch.zeros(3, 224, 224) for _ in range(len(self.vae_models))],
+            'real_resized': torch.zeros(3, 224, 224) if any(f != 1.0 for f in self.resize_factors) else None,
+            'fake_resized': [torch.zeros(3, 224, 224) if f != 1.0 else None for f in self.resize_factors],
+            'batch_real_num': self.batch_real_num,
+            'batch_fake_num': self.batch_fake_num,
+        }
+        return empty_dict
     
 def custom_collate_fn(batch):
-    real = []
-    vae_rec = []
-    real_resized = []
-    vae_rec_resized = []
-    labels = []
-
-    labels.extend([0] * batch[0]["batch_real_num"])
-    labels.extend([1] * batch[0]["batch_fake_num"])
-
+    """
+    Custom collate function to create batches from a list of samples
+    
+    Args:
+        batch: List of dictionaries from RealFakeDataset.__getitem__
+        
+    Returns:
+        Tuple of (images_tensor, labels_tensor)
+    """
+    # Create lists for different image types
+    real_images = []
+    fake_images = []
+    real_resized_images = []
+    fake_resized_images = []
+    
+    # Create labels
+    batch_real_num = batch[0]['batch_real_num']
+    batch_fake_num = batch[0]['batch_fake_num']
+    
+    labels = [0] * batch_real_num + [1] * batch_fake_num
+    
+    # Extract images from batch
     for item in batch:
-        real.append(item["real"])
-        vae_rec.extend(item["vae_rec"])  # flatten the fake_imgs list
+        real_images.append(item['real'])
+        
+        for fake_img in item['fake']:
+            fake_images.append(fake_img)
 
-        if item["real_resized"] is not None:
-            real_resized.append(item["real_resized"])
-        if item["vae_rec_resized"] is not None:
-            vae_rec_resized.extend(item["vae_rec_resized"])
-
-    # Concatenate tensors
-    all_imgs = torch.stack(real + real_resized + vae_rec + vae_rec_resized, dim=0)
-    label_tensor = torch.tensor(labels)
-
-    return all_imgs, label_tensor
+        for real_resize_img in item['real_resized']:    
+            if real_resize_img is not None:
+                real_resized_images.append(real_resize_img)
+            
+        for fake_resize_img in item['fake_resized']:
+            if fake_resize_img is not None:
+                fake_resized_images.append(fake_resize_img)
+    
+    # Combine all images
+    all_images = []
+    all_images.extend(real_images)
+    all_images.extend(fake_images)
+    all_images.extend(real_resized_images)
+    all_images.extend(fake_resized_images)
+    
+    # Stack images into a single tensor
+    images_tensor = torch.stack(all_images, dim=0)
+    labels_tensor = torch.tensor(labels)
+    
+    return images_tensor, labels_tensor
 
 
 # for customized batch

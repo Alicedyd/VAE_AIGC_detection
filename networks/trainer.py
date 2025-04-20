@@ -87,6 +87,9 @@ class Trainer(BaseModel):
         super(Trainer, self).__init__(opt)
         self.opt = opt  
         
+         # Add gradient accumulation parameters
+        self.accumulation_steps = opt.accumulation_steps if hasattr(opt, 'accumulation_steps') else 1
+        self.current_step = 0  # Track steps for gradient accumulation
         
         lora_args = {}
         if hasattr(opt, 'lora_rank'):
@@ -154,23 +157,8 @@ class Trainer(BaseModel):
         return True
 
     def set_input(self, input):
-        if len(input) == 2:
-            self.input = input[0].to(self.device)
-            self.label = input[1].to(self.device).float()
-        else:
-            # self.input = torch.cat((input[0].to(self.device), input[1].to(self.device)), dim=0)
-            # self.label = torch.cat((input[2].to(self.device).float(), input[3].to(self.device).float()), dim=0)
-            real_imgs = input[0].to(self.device)
-            fake_imgs_list = input[1]
-
-            fake_imgs = torch.cat(fake_imgs_list, dim=0).to(self.device)
-            self.input = torch.cat([real_imgs, fake_imgs], dim=0)
-
-            real_labels = input[2].to(self.device).float()
-            fake_labels_list = input[3]
-
-            fake_labels = torch.cat(fake_labels_list, dim=0).to(self.device)
-            self.label = torch.cat([real_labels, fake_labels], dim=0)
+        self.input = input[0].to(self.device)
+        self.label = input[1].to(self.device).float()
 
     def forward(self):
         if self.contrastive:
@@ -185,17 +173,36 @@ class Trainer(BaseModel):
 
     def optimize_parameters(self):
         self.forward()
+
         if self.contrastive:
             self.loss = (1 - self.contrastive_alpha) * self.loss_fn(self.output.squeeze(1), self.label) + self.contrastive_alpha * self.contrastive_loss_fn(self.feature, self.label)
-        self.loss = self.loss_fn(self.output.squeeze(1), self.label) 
-        self.optimizer.zero_grad()
+        else:
+            self.loss = self.loss_fn(self.output.squeeze(1), self.label) 
+
+        self.loss = self.loss / self.accumulation_steps
         self.loss.backward()
-        self.optimizer.step()
-        self.scheduler.step()
+
+        if self.current_step % self.accumulation_steps == 0:            
+            # Update parameters
+            self.optimizer.step()
+            self.scheduler.step()
+            self.optimizer.zero_grad()  # Reset gradients after update
+
+        # self.optimizer.zero_grad()
+        # self.loss.backward()
+        # self.optimizer.step()
+        # self.scheduler.step()
         
     def train(self):
         self.model.train()
         
     def eval(self):
         self.model.eval()
+
+    # Handle remaining gradients at the end of epoch
+    def finalize_epoch(self):
+        if self.current_step % self.accumulation_steps != 0:
+            # Update with remaining gradients
+            self.optimizer.step()
+            self.optimizer.zero_grad()
 

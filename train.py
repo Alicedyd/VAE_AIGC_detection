@@ -92,6 +92,8 @@ if __name__ == '__main__':
                 if model.total_steps in [100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000]: # save models at these iters 
                     model.save_networks('model_iters_%s.pth' % model.total_steps)
 
+            model.finalize_epoch()
+
         else:
 
             for i, data in enumerate(data_loader):
@@ -107,6 +109,8 @@ if __name__ == '__main__':
 
                 if model.total_steps in [100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000]: # save models at these iters 
                     model.save_networks('model_iters_%s.pth' % model.total_steps)
+
+            model.finalize_epoch()
 
         if epoch % opt.save_epoch_freq == 0:
             print('saving the model at the end of epoch %d' % (epoch))

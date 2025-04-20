@@ -63,10 +63,12 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
     else:
         shuffle = not opt.serial_batches if (opt.isTrain and not opt.class_bal) else False
 
-        fake_num = len(opt.fake_list_path.split(","))
-        batch_size = opt.batch_size // ( 1 +fake_num )
-        if opt.resize_vae:
-            batch_size = batch_size // 2
+        fake_num = len(opt.vae_models.split(","))
+        if opt.resize_factors == "":
+            resize_num = 0
+        else:
+            resize_num = len(opt.resize_factors.split(","))
+        batch_size = opt.batch_size // (( 1 +fake_num ) * ( 1+resize_num))
 
         dataset = RealFakeDataset(opt)
         if '2b' in opt.arch:
