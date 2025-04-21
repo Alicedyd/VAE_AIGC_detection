@@ -68,7 +68,7 @@ def create_dataloader(opt, preprocess=None, return_dataset=False):
             resize_num = 0
         else:
             resize_num = len(opt.resize_factors.split(","))
-        batch_size = opt.batch_size // (( 1 +fake_num ) * ( 1+resize_num))
+        batch_size = opt.batch_size // (( 1 + fake_num ) * ( 1 + resize_num ))
 
         dataset = RealFakeDataset(opt)
         if '2b' in opt.arch:

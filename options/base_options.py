@@ -32,6 +32,7 @@ class BaseOptions():
 
         parser.add_argument('--vae_models', type=str)
         parser.add_argument('--resize_factors', type=str, default="")
+        parser.add_argument('--upper_resize_factors', types=str, default='')
 
         parser.add_argument('--contrastive', action='store_true')
 
