@@ -5,7 +5,7 @@
 ###############################
 
 # 硬件设置
-GPU_IDS=3               # 可用GPU编号，多卡用逗号分隔
+GPU_IDS=2               # 可用GPU编号，多卡用逗号分隔
 BATCH_SIZE=32           # 批次大小，根据显存调整
 
 # 训练参数
@@ -26,7 +26,7 @@ USE_VAE=true            # 是否启用VAE
 VAE_PREPROCESS="None"   # VAE预处理方式
 
 # 实验配置
-EXP_NAME="coco_dino_vae_single_none_contrastive"  # 实验名称
+EXP_NAME="coco_dino_vae_multi_none_contrastive"  # 实验名称
 USE_CONTRASTIVE=true    # 启用对比学习
 
 ###############################

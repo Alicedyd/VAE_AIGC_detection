@@ -33,27 +33,90 @@ STD = {
     "clip":[0.26862954, 0.26130258, 0.27577711]
 }
 
-class RandomPure:
-    """随机将图像转换为纯色"""
-    def __init__(self, p=0.01):
-        self.p = p
+# class RandomPure:
+#     """随机将图像转换为纯色"""
+#     def __init__(self, p=0.01):
+#         self.p = p
 
+#     def _generate_random_color(self):
+#         return (
+#             rd.randint(0, 255),
+#             rd.randint(0, 255),
+#             rd.randint(0, 255)
+#         )
+    
+#     def _create_solid_color_image(self, size, color):
+#         image = Image.new('RGB', size, color)
+#         return image
+    
+#     def __call__(self, img):
+#         if random() < self.p:
+#             color = self._generate_random_color()
+#             size = img.size
+#             return self._create_solid_color_image(size, color)
+#         else:
+#             return img
+
+class RandomPure:
+    """随机将图像的一部分转换为纯色矩形"""
+    def __init__(self, p=0.01, min_size=0.1, max_size=0.5):
+        """
+        初始化
+        
+        参数:
+            p (float): 应用转换的概率
+            min_size (float): 纯色区域最小尺寸比例(相对于图像尺寸)
+            max_size (float): 纯色区域最大尺寸比例(相对于图像尺寸)
+        """
+        self.p = p
+        self.min_size = min_size
+        self.max_size = max_size
+    
     def _generate_random_color(self):
+        """生成随机RGB颜色"""
         return (
             rd.randint(0, 255),
             rd.randint(0, 255),
             rd.randint(0, 255)
         )
     
-    def _create_solid_color_image(self, size, color):
-        image = Image.new('RGB', size, color)
-        return image
+    def _get_random_rectangle_params(self, img_width, img_height):
+        """获取随机矩形的参数"""
+        # 确定矩形尺寸
+        width_ratio = rd.uniform(self.min_size, self.max_size)
+        height_ratio = rd.uniform(self.min_size, self.max_size)
+        
+        rect_width = int(img_width * width_ratio)
+        rect_height = int(img_height * height_ratio)
+        
+        # 随机位置(确保矩形完全在图像内)
+        x1 = rd.randint(0, img_width - rect_width)
+        y1 = rd.randint(0, img_height - rect_height)
+        x2 = x1 + rect_width
+        y2 = y1 + rect_height
+        
+        return (x1, y1, x2, y2)
     
     def __call__(self, img):
+        """应用变换"""
         if random() < self.p:
+            # 获取图像尺寸
+            width, height = img.size
+            
+            # 生成随机颜色
             color = self._generate_random_color()
-            size = img.size
-            return self._create_solid_color_image(size, color)
+            
+            # 获取随机矩形参数
+            bbox = self._get_random_rectangle_params(width, height)
+            
+            # 创建一个与原图像相同的副本
+            result = img.copy()
+            draw = ImageDraw.Draw(result)
+            
+            # 绘制随机颜色的矩形
+            draw.rectangle(bbox, fill=color)
+            
+            return result
         else:
             return img
 

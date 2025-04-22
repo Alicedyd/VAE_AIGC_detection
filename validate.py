@@ -346,7 +346,7 @@ if __name__ == '__main__':
     parser.add_argument('--fake_path', type=str, default=None, help='dir name or a pickle')
     parser.add_argument('--data_mode', type=str, default=None, help='wang2020 or ours')
     parser.add_argument('--key', type=str, default=None, help='dataset key')
-    parser.add_argument('--max_sample', type=int, default=1000, help='only check this number of images for both fake/real')
+    parser.add_argument('--max_sample', type=int, default=500, help='only check this number of images for both fake/real')
 
     parser.add_argument('--arch', type=str, default='res50')
     parser.add_argument('--ckpt', type=str, default='./pretrained_weights/fc_weights.pth')

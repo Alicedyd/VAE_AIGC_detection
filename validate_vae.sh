@@ -3,12 +3,12 @@
 # 模型相关设置
 DATA_MODE="ours"
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/coco_dino_vae_single_none_contrastive/model_iters_100.pth"
-RESULT_FOLDER="./result/coco_dino_vae_single_none_contrastive/"
+CKPT="./checkpoints/coco_dino_vae_multi_none_contrastive/model_iters_10000.pth"
+RESULT_FOLDER="./result/coco_dino_vae_multi_none_contrastive/"
 LORA_RANK=8
 LORA_ALPHA=1
 JPEG_QUALITY=95
-GPU_ID=2
+GPU_ID=1
 
 SAVE_BAD_CASE=true
 
@@ -22,7 +22,7 @@ KEYS=()
 
 # DRCT-2M 数据集设置
 # 数据集根目录
-BASE_NAME="DRCT-2M"
+BASE_NAME="DRCT-2M" 
 BASE_PATH="/root/autodl-tmp/AIGC_data/DRCT-2M"
 
 # 数据集子目录和对应的 key

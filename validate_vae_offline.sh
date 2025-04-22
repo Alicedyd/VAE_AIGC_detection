@@ -3,14 +3,14 @@
 # 模型相关设置
 DATA_MODE="ours"
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/coco_dino_vae_multi_offline_pair_contrastive/model_epoch_0.pth"
-RESULT_FOLDER="./result/coco_dino_vae_multi_offline_pair_contrastive/"
+CKPT="./checkpoints/multi_double_resize/model_iters_4000.pth"
+RESULT_FOLDER="./result/multi_double_resize/4000"
 LORA_RANK=8
 LORA_ALPHA=1
 JPEG_QUALITY=95
-GPU_ID=1
+GPU_ID=0
 
-SAVE_BAD_CASE=true
+SAVE_BAD_CASE=false
 
 OPT_FLAGS=""
 $SAVE_BAD_CASE && OPT_FLAGS+=" --save_bad_case"
@@ -45,6 +45,25 @@ DATASETS=( \
     "stable-diffusion-xl-1.0-inpainting-0.1:sdxl-inpainting" \
 ) 
 
+# DATASETS=( \
+#     "ldm-text2im-large-256:ldm-t2i" \
+#     "stable-diffusion-v1-4:sd14" \
+#     "stable-diffusion-v1-5:sd15" \
+#     "stable-diffusion-2-1:sd21" \
+#     "stable-diffusion-xl-base-1.0:sdxl" \
+#     "stable-diffusion-xl-refiner-1.0:sdxl-refiner" \
+#     "sd-turbo:sd-turbo" \
+#     "sdxl-turbo:sdxl-turbo" \
+#     "lcm-lora-sdv1-5:lcm-sd15" \
+#     "lcm-lora-sdxl:lcm-sdxl" \
+#     "sd-controlnet-canny:sd-cn" \
+#     "sd21-controlnet-canny:sd21-cn" \
+#     "controlnet-canny-sdxl-1.0:sdxl-cn" \
+#     "stable-diffusion-inpainting:sd-inpainting" \
+#     "stable-diffusion-2-inpainting:sd21-inpainting" \
+#     "stable-diffusion-xl-1.0-inpainting-0.1:sdxl-inpainting" \
+# )
+
 for ds in "${DATASETS[@]}"; do
     IFS=":" read -r NAME KEY <<< "$ds"
     REAL_PATHS+=("/root/autodl-tmp/AIGC_data/MSCOCO/val2017")
@@ -75,19 +94,37 @@ for ds in "${DATASETS[@]}"; do
     KEYS+=("$BASE_NAME/$KEY")
 done
 
+# Chameleon 数据集
 REAL_PATHS+=("/root/autodl-tmp/AIGC_data/Chameleon/test/0_real")
 FAKE_PATHS+=("/root/autodl-tmp/AIGC_data/Chameleon/test/1_fake")
 KEYS+=("Chameleon")
+
+# 添加新的Eval_GEN路径
+BASE_NAME="Eval_GEN"
+EVAL_GEN_MODELS=( \
+    "Flux" \
+    "GoT" \
+    "Infinity" \
+    "NOVA" \
+    "sd14" \
+    "sdxl" \
+)
+
+for model in "${EVAL_GEN_MODELS[@]}"; do
+    REAL_PATHS+=("/root/autodl-tmp/AIGC_data/MSCOCO/val2017")
+    FAKE_PATHS+=("/root/autodl-tmp/AIGC_data/Eval_GEN/$model")
+    KEYS+=("$BASE_NAME/$model")
+done
+
+# 添加GPT-ImgEval路径
+REAL_PATHS+=("/root/autodl-tmp/AIGC_data/MSCOCO/val2017")
+FAKE_PATHS+=("/root/autodl-tmp/AIGC_data/GPT-ImgEval")
+KEYS+=("GPT-ImgEval")
 
 # 拼接成逗号分隔的字符串
 REAL_PATH=$(IFS=, ; echo "${REAL_PATHS[*]}")
 FAKE_PATH=$(IFS=, ; echo "${FAKE_PATHS[*]}")
 KEY=$(IFS=, ; echo "${KEYS[*]}")
-
-# # Chameleon 数据集设置
-# REAL_PATH="/root/autodl-tmp/AIGC_data/Chameleon/test/0_real"
-# FAKE_PATH="/root/autodl-tmp/AIGC_data/Chameleon/test/1_fake"
-# KEY="Chameleon"
 
 # 执行 Python 脚本
 python validate.py \

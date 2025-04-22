@@ -56,11 +56,7 @@ if __name__ == '__main__':
     model = Trainer(opt)
     
     data_loader = create_dataloader(opt)
-    val_loader = RealFakeDataset(   opt.real_list_path, 
-                                    opt.fake_list_path, 
-                                    opt.data_mode, 
-                                    1000, 
-                                    opt.arch,)
+    val_loader = create_dataloader(opt)
 
     train_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "train"))
     val_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "val"))
@@ -89,7 +85,7 @@ if __name__ == '__main__':
                     train_writer.add_scalar('loss', model.loss, model.total_steps)
                     print("Iter time: ", ((time.time()-start_time)/model.total_steps)  )
 
-                if model.total_steps in [100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000]: # save models at these iters 
+                if model.total_steps % 1000 == 0: # save models for each 1000 steps 
                     model.save_networks('model_iters_%s.pth' % model.total_steps)
 
             model.finalize_epoch()
