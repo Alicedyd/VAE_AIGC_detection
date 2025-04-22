@@ -157,8 +157,12 @@ class Trainer(BaseModel):
         return True
 
     def set_input(self, input):
-        self.input = input[0].to(self.device)
-        self.label = input[1].to(self.device).float()
+        # self.input = input[0].to(self.device)
+        # self.label = input[1].to(self.device).float()
+
+        self.input = torch.cat([input["real"], input["real_resized"], input["fake"], input["fake_resized"]], dim=0).to(self.device)
+        self.label = [0] * len(input["real"]) + [0] * len(input["real_resized"]) + [1] * len(input["fake"]) + [1] * len(input["fake_resized"])
+        self.label = torch.tensor(self.label).to(self.device).float()
 
     def forward(self):
         if self.contrastive:

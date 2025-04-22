@@ -16,6 +16,10 @@ from skimage.io import imread
 from copy import deepcopy
 import torch
 
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+from albumentations.core.transforms_interface import ImageOnlyTransform
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
@@ -28,6 +32,117 @@ STD = {
     "imagenet":[0.229, 0.224, 0.225],
     "clip":[0.26862954, 0.26130258, 0.27577711]
 }
+
+class RandomPure:
+    """随机将图像转换为纯色"""
+    def __init__(self, p=0.01):
+        self.p = p
+
+    def _generate_random_color(self):
+        return (
+            rd.randint(0, 255),
+            rd.randint(0, 255),
+            rd.randint(0, 255)
+        )
+    
+    def _create_solid_color_image(self, size, color):
+        image = Image.new('RGB', size, color)
+        return image
+    
+    def __call__(self, img):
+        if random() < self.p:
+            color = self._generate_random_color()
+            size = img.size
+            return self._create_solid_color_image(size, color)
+        else:
+            return img
+
+class RandomGaussianNoise:
+    """为PIL图像添加高斯噪声的转换"""
+    def __init__(self, mean=0, std=25, p=0.5):
+        self.mean = mean
+        self.std = std
+        self.p = p
+        
+    def __call__(self, img):
+        if random() < self.p:
+            # 将PIL图像转换为numpy数组
+            img_array = np.array(img).astype(np.float32)
+            
+            # 生成噪声
+            noise = np.random.normal(self.mean, self.std, img_array.shape)
+            
+            # 添加噪声
+            noisy_img = img_array + noise
+            
+            # 裁剪到有效的像素值范围
+            noisy_img = np.clip(noisy_img, 0, 255).astype(np.uint8)
+            
+            # 转回PIL图像
+            return Image.fromarray(noisy_img)
+        return img
+    
+
+class RandomResizedCropWithVariableSize(transforms.RandomResizedCrop):
+    def __init__(self, min_size, max_size, scale=(0.08, 1.0), ratio=(1.0, 1.0), interpolation=transforms.InterpolationMode.BILINEAR):
+        self.min_size = min_size
+        self.max_size = max_size
+        super().__init__(size=min_size, scale=scale, ratio=ratio, interpolation=interpolation)
+    
+    def get_random_size(self):
+        """Return a random size between min_size and max_size."""
+        size = random.randint(self.min_size, self.max_size)
+        return size
+
+    def __call__(self, img):
+        size = img.size 
+        size = tuple(int(element * 0.54) for element in size)
+        i, j, h, w = self.get_params(img, self.scale, self.ratio)
+        ret =  F.resized_crop(img, i, j, h, w, size, self.interpolation, antialias=self.antialias)
+        return ret
+
+
+def create_train_transforms(size=224, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), is_crop=True):
+    """创建训练数据增强转换管道"""
+    
+    # 根据是否裁剪选择不同的大小调整方法
+    if is_crop:
+        resize_func = PadRandomCrop(size)
+    else:
+        resize_func = transforms.Resize(size)
+    
+    # 构建转换列表
+    transform_list = [
+        # 随机水平翻转
+        transforms.RandomHorizontalFlip(),
+        
+        # 添加高斯噪声
+        RandomGaussianNoise(p=0.1),
+        
+        # 高斯模糊
+        transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.1),
+        
+        # 随机应用颜色变换（亮度、对比度等）
+        transforms.RandomApply([
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1)
+        ], p=0.5),
+        
+        # 随机转为灰度图
+        transforms.RandomGrayscale(p=0.2),
+
+        # 调整大小
+        resize_func,
+
+        # 转为张量
+        transforms.ToTensor(),
+        
+        # 标准化
+        transforms.Normalize(mean=mean, std=std),
+    ]
+    
+    # 创建转换组合
+    return transforms.Compose(transform_list)
+
 
 def data_augment(img, opt):
     img = np.array(img)
@@ -371,54 +486,63 @@ class PadCenterCrop:
         return cropped
     
 class ComposedTransforms:
-    """A composition of image transforms that applies consistently to multiple images"""
+    """一个图像转换组合，可以一致地应用于多个图像"""
     def __init__(self, transforms_list):
+        """
+        初始化转换组合
+        
+        Args:
+            transforms_list: 一个torchvision.transforms.Compose对象
+        """
         self.transforms = transforms_list
         
     def __call__(self, images_dict):
         """
-        Apply transforms to all images in the dictionary
+        对字典中的所有图像应用相同的转换
         
         Args:
-            images_dict: Dictionary with keys for different image types
-                        (e.g., 'real', 'fake', 'real_resized', 'fake_resized')
+            images_dict: 包含不同类型图像的字典
+                        (例如, 'real', 'fake', 'real_resized', 'fake_resized')
                         
         Returns:
-            Dictionary with transformed images
+            包含转换后图像的字典
         """
-        # Save random states for consistent transformations
-        random_state = torch.get_rng_state()
+        # 保存随机状态以实现一致的转换
+        torch_state = torch.get_rng_state()
         numpy_state = np.random.get_state()
         python_state = rd.getstate()
         
         result = {}
         
-        # Apply transforms to each image in the dictionary
+        # 对字典中的每个图像应用转换
         for key, val in images_dict.items():
             if val is None:
                 result[key] = None
                 continue
                 
             if isinstance(val, list):
-                # result[key] = img
+                # 处理图像列表
                 transformed_imgs = []
-                for i, single_img in enumerate(val):
-                    # Reset random state for each image
-                    torch.set_rng_state(random_state)
+                for i, single_img in enumerate(val):                   
+                    # 为每个图像重置随机状态
+                    torch.set_rng_state(torch_state)
                     np.random.set_state(numpy_state)
                     rd.setstate(python_state)
                     
-                    # Apply all transforms
+                    # 应用所有转换
                     transformed = self.transforms(single_img)
                     transformed_imgs.append(transformed)
+                
                 result[key] = transformed_imgs
+
             elif isinstance(val, Image.Image):
-                # Reset random state
-                torch.set_rng_state(random_state)
+                # 处理单个PIL图像
+                # 重置随机状态
+                torch.set_rng_state(torch_state)
                 np.random.set_state(numpy_state)
                 rd.setstate(python_state)
                 
-                # Apply all transforms
+                # 应用所有转换
                 transformed = self.transforms(val)
                 result[key] = transformed
             else:
@@ -442,11 +566,14 @@ class RealFakeDataset(Dataset):
         # Create mapping to fake and resized paths
         self.vae_models = opt.vae_models.split(',')
 
-        self.use_resize = hasattr(opt, 'resize_factors') and opt.resize_factors != ''
-        if self.use_resize:
-            self.resize_factors = [float(f) for f in opt.resize_factors.split(',')]
-        else:
-            self.resize_factors = []
+        # self.use_resize = hasattr(opt, 'resize_factors') and opt.resize_factors != ''
+        # if self.use_resize:
+        #     self.resize_factors = [float(f) for f in opt.resize_factors.split(',')]
+        # else:
+        #     self.resize_factors = []
+
+        self.resize_factors = [float(f) for f in opt.resize_factors.split(',')]
+        self.upper_resize_factors = [float(f) for f in opt.upper_resize_factors.split(',')]
         
         # Create a list of data samples, each sample is a dictionary
         self.data_list = []
@@ -457,8 +584,11 @@ class RealFakeDataset(Dataset):
             sample = {
                 'real_path': real_path,
                 'fake_paths': [],
-                'fake_resize_paths': []
             }
+
+            # [real, real_0.5, real_2, fake, resized_fake_0.5, resized_fake_2]
+
+            # [real , real_0.5, real_2, fake, fake_resized_0.5, fake_resized_0.25]
             
             # Find corresponding fake and resized paths for each VAE model
             for vae_name in self.vae_models:
@@ -466,15 +596,9 @@ class RealFakeDataset(Dataset):
                 fake_dir = f"{opt.real_list_path}_{vae_name}"
                 fake_path = real_path.replace(opt.real_list_path, fake_dir)
                 fake_path = os.path.splitext(fake_path)[0] + ".png"
+                if not os.path.exists(fake_path):
+                    print(f"{fake_path} not exists")
                 sample['fake_paths'].append(fake_path)
-                
-                # Construct resized path (if resize factor is not 1.0)
-            if self.use_resize:
-                for resize_factor in self.resize_factors:
-                    resize_dir = f"{opt.real_list_path}_{vae_name}_{resize_factor}"
-                    resize_path = real_path.replace(opt.real_list_path, resize_dir)
-                    resize_path = os.path.splitext(resize_path)[0] + ".png"
-                    sample['fake_resize_paths'].append(resize_path)
             
             self.data_list.append(sample)
         
@@ -482,40 +606,45 @@ class RealFakeDataset(Dataset):
         rd.shuffle(self.data_list)
         
         # Batch information for collation
-        self.batch_real_num = opt.batch_size // ( (1 + len(self.vae_models)) * (1 + len(self.resize_factors)) )
-        self.batch_fake_num = opt.batch_size - self.batch_real_num
+        # self.batch_real_num = opt.batch_size // (1 + len(self.vae_models))
+        # self.batch_fake_num = opt.batch_size - self.batch_real_num
         
         # Create transforms
         # Choose crop function based on mode
-        if opt.isTrain:
-            crop_func = PadRandomCrop(opt.cropSize)
-        elif getattr(opt, 'no_crop', False):
-            crop_func = lambda x: x  # No crop
-        else:
-            crop_func = PadCenterCrop(opt.cropSize)
+        # if opt.isTrain:
+        #     crop_func = PadRandomCrop(opt.cropSize)
+        # elif getattr(opt, 'no_crop', False):
+        #     crop_func = lambda x: x  # No crop
+        # else:
+        #     crop_func = PadCenterCrop(opt.cropSize)
 
-        # Choose flip function based on mode
-        if opt.isTrain and not getattr(opt, 'no_flip', False):
-            flip_func = transforms.RandomHorizontalFlip()
-        else:
-            flip_func = lambda x: x  # No flip
+        # # Choose flip function based on mode
+        # if opt.isTrain and not getattr(opt, 'no_flip', False):
+        #     flip_func = transforms.Compose([
+        #         transforms.RandomHorizontalFlip(),
+        #         transforms.RandomVerticalFlip(),
+        #     ])
+        # else:
+        #     flip_func = lambda x: x  # No flip
 
         # Choose normalization stats
         stat_from = "imagenet" if opt.arch.lower().startswith("imagenet") else "clip"
         print("mean and std stats are from:", stat_from)
         
         # Create transform pipeline
-        transform_list = transforms.Compose([
-            transforms.Lambda(lambda img: data_augment(img, opt)),
-            crop_func,
-            flip_func,
-            transforms.ToTensor(),
-            transforms.Normalize( mean=MEAN[stat_from], std=STD[stat_from] ),
-        ])
+        # transform_list = transforms.Compose([
+        #     transforms.Lambda(lambda img: data_augment(img, opt)),
+        #     crop_func,
+        #     flip_func,
+        #     transforms.ToTensor(),
+        #     transforms.Normalize( mean=MEAN[stat_from], std=STD[stat_from] ),
+        # ])
+        transform_list = create_train_transforms(size=opt.cropSize, mean=MEAN[stat_from], std=STD[stat_from])
         
         # Create composed transforms
-        self.transform_list = transform_list
         self.transform = ComposedTransforms(transform_list)
+
+        self.random_pure = RandomPure(p=0.01)
 
 
     def __len__(self):
@@ -524,85 +653,131 @@ class RealFakeDataset(Dataset):
 
 
     def __getitem__(self, idx):
-        max_attempts = 5
         current_idx = idx 
         
-        for _ in range(max_attempts):
-            try:
-                # Get sample data
-                sample = self.data_list[current_idx]
-                
-                # Create image dictionary
-                img_dict = {
-                    'real': None,
-                    'fake': [],
-                    'real_resized': [],
-                    'fake_resized': [],
-                    'batch_real_num': self.batch_real_num,
-                    'batch_fake_num': self.batch_fake_num,
-                }
-                
-                # Load real image
-                real_img_path = sample['real_path']
-                real_img = Image.open(real_img_path).convert("RGB")
-                img_dict['real'] = real_img
-                
-                # Load fake images
-                for fake_path in sample['fake_paths']:
-                    try:
-                        fake_img = Image.open(fake_path).convert("RGB")
-                        img_dict['fake'].append(fake_img)
-                    except Exception as e:
-                        print(f"Error loading fake image {fake_path}: {e}")
-                        # Use a copy of the real image as fallback
-                        img_dict['fake'].append(real_img.copy())
-                
-                if self.use_resize:
-                    # Create resized version of real image
-                    for resize_factor in self.resize_factors:
-                        w, h = real_img.size
-                        new_w = int(w * resize_factor)
-                        new_h = int(h * resize_factor)
-                        real_resized = real_img.resize((new_w, new_h), Image.BILINEAR)
-                        img_dict['real_resized'].append(real_resized)
-                    
-                    # Load fake resized images
-                    for fake_resize_path in sample['fake_resize_paths']:
-                        if fake_resize_path is not None:
-                            try:
-                                fake_resize_img = Image.open(fake_resize_path).convert("RGB")
-                                img_dict['fake_resized'].append(fake_resize_img)
-                            except Exception as e:
-                                print(f"Error loading fake resized image {fake_resize_path}: {e}")
-                                # Create a fallback resized image
-                                if img_dict['real_resized'] is not None:
-                                    img_dict['fake_resized'].append(img_dict['real_resized'].copy())
-                                else:
-                                    # Skip this one if no resized reference
-                                    img_dict['fake_resized'].append(None)
-                        else:
-                            img_dict['fake_resized'].append(None)
-                
-                # Apply transforms to all images
-                transformed_dict = self.transform(img_dict)
-                
-                return transformed_dict
-                
-            except Exception as e:
-                print(f"Error processing image at index {current_idx}: {e}")
-                current_idx = (current_idx + 1) % len(self.data_list)
-        
-        # Return empty tensors if all attempts fail
-        print(f"Warning: Failed to load valid images after {max_attempts} attempts")
-        empty_dict = {
-            'real': torch.zeros(3, 224, 224),
-            'fake': [torch.zeros(3, 224, 224) for _ in range(len(self.vae_models))],
-            'real_resized': torch.zeros(3, 224, 224) if any(f != 1.0 for f in self.resize_factors) else None,
-            'fake_resized': [torch.zeros(3, 224, 224) if f != 1.0 else None for f in self.resize_factors],
-            'batch_real_num': self.batch_real_num,
-            'batch_fake_num': self.batch_fake_num,
-        }
-        return empty_dict
+        try:
+            # Get sample data
+            sample = self.data_list[current_idx]
+            
+            # Create image dictionary
+            img_dict = {
+                'real': None,
+                'fake': [],
+                'real_resized': [],
+                'fake_resized': [],
+            }
+            
+            # Load real image
+            real_img_path = sample['real_path']
+            real_img = Image.open(real_img_path).convert("RGB")
+
+            # 随机变为纯色
+            real_img = self.random_pure(real_img)
+
+            img_dict['real'] = real_img
+            
+            # Load fake images
+            for fake_path in sample['fake_paths']:
+                fake_img = Image.open(fake_path).convert("RGB")
+                img_dict['fake'].append(fake_img)
+            
+            resampling_methods = [
+                        Image.NEAREST,
+                        Image.BOX,
+                        Image.BILINEAR,
+                        Image.HAMMING,
+                        Image.BICUBIC,
+                        Image.LANCZOS,
+                    ]
+
+
+            resize_factor = rd.choice(self.resize_factors)
+            upper_resize_factor = rd.choice(self.upper_resize_factors)
+
+            # real resized
+            for factor in [resize_factor, upper_resize_factor]:
+                w, h = real_img.size
+                new_w = int(w * factor)
+                new_h = int(h * factor)
+                real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
+                img_dict['real_resized'].append(real_resized)
+
+            # # up then down
+            # w, h = real_img.size
+            # new_w = int(w * upper_resize_factor)
+            # new_h = int(h * upper_resize_factor)
+            # real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
+
+            # w, h = real_resized.size
+            # new_w = int(w * resize_factor)
+            # new_h = int(h * resize_factor)
+            # real_resized = real_resized.resize((new_w, new_h), rd.choice(resampling_methods))
+
+            # img_dict['real_resized'].append(real_resized)
+
+            # # down then up
+            # w, h = real_img.size
+            # new_w = int(w * resize_factor)
+            # new_h = int(h * resize_factor)
+            # real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
+
+            # w, h = real_resized.size
+            # new_w = int(w * upper_resize_factor)
+            # new_h = int(h * upper_resize_factor)
+            # real_resized = real_resized.resize((new_w, new_h), rd.choice(resampling_methods))
+
+            # img_dict['real_resized'].append(real_resized)
+
+            # fake resized
+            for fake_img in img_dict['fake']:
+                for factor in [resize_factor, upper_resize_factor]:
+                    w, h = fake_img.size
+                    new_w = int(w * factor)
+                    new_h = int(h * factor)
+                    fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
+                    img_dict['fake_resized'].append(fake_resized)
+
+                # # up then down
+                # w, h = fake_img.size
+                # new_w = int(w * upper_resize_factor)
+                # new_h = int(h * upper_resize_factor)
+                # fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
+
+                # w, h = fake_resized.size
+                # new_w = int(w * resize_factor)
+                # new_h = int(h * resize_factor)
+                # fake_resized = fake_resized.resize((new_w, new_h), rd.choice(resampling_methods))
+
+                # img_dict['fake_resized'].append(fake_resized)
+
+                # # down then up
+                # w, h = fake_img.size
+                # new_w = int(w * resize_factor)
+                # new_h = int(h * resize_factor)
+                # fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
+
+                # w, h = fake_resized.size
+                # new_w = int(w * upper_resize_factor)
+                # new_h = int(h * upper_resize_factor)
+                # fake_resized = fake_resized.resize((new_w, new_h), rd.choice(resampling_methods))
+
+                # img_dict['real_resized'].append(fake_resized)
+
+            
+            
+            # print("real")
+            # print(np.array(img_dict["real"]))
+            # print("fake")
+            # print(np.array(img_dict['fake'][0]))
+
+            # Apply transforms to all images
+            transformed_dict = self.transform(img_dict)
+            
+            return transformed_dict
+            
+        except Exception as e:
+            print(f"Error processing image at index {current_idx}: {e}")
+            current_idx = (current_idx + 1) % len(self.data_list)
     
 def custom_collate_fn(batch):
     """
@@ -621,10 +796,10 @@ def custom_collate_fn(batch):
     fake_resized_images = []
     
     # Create labels
-    batch_real_num = batch[0]['batch_real_num']
-    batch_fake_num = batch[0]['batch_fake_num']
+    # batch_real_num = batch[0]['batch_real_num']
+    # batch_fake_num = batch[0]['batch_fake_num']
     
-    labels = [0] * batch_real_num + [1] * batch_fake_num
+    # labels = [0] * batch_real_num + [1] * batch_fake_num
     
     # Extract images from batch
     for item in batch:
@@ -642,17 +817,22 @@ def custom_collate_fn(batch):
                 fake_resized_images.append(fake_resize_img)
     
     # Combine all images
-    all_images = []
-    all_images.extend(real_images)
-    all_images.extend(fake_images)
-    all_images.extend(real_resized_images)
-    all_images.extend(fake_resized_images)
+    # all_images = []
+    # all_images.extend(real_images)
+    # all_images.extend(real_resized_images)
+    # all_images.extend(fake_images)
+    # all_images.extend(fake_resized_images)
+    real_images_tensor = torch.stack(real_images)
+    real_resized_images_tensor = torch.stack(real_resized_images)
+    fake_images_tensor = torch.stack(fake_images)
+    fake_resized_images_tensor = torch.stack(fake_resized_images)
     
+    return {"real": real_images_tensor, "real_resized": real_resized_images_tensor, "fake": fake_images_tensor, "fake_resized": fake_resized_images_tensor}
     # Stack images into a single tensor
-    images_tensor = torch.stack(all_images, dim=0)
-    labels_tensor = torch.tensor(labels)
+    # images_tensor = torch.stack(all_images, dim=0)
+    # labels_tensor = torch.tensor(labels)
     
-    return images_tensor, labels_tensor
+    return 
 
 
 # for customized batch
