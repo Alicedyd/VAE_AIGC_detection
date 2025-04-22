@@ -1,4 +1,4 @@
-EXP_NAME=mult_double_resize_pure_part
+EXP_NAME=debug
 REAL_LIST="/root/autodl-tmp/AIGC_data/MSCOCO"
 FAKE_LIST="/root/autodl-tmp/AIGC_data/DRCT-2M/stable-diffusion-xl-base-1.0"
 DATA_MODE=mscoco
@@ -7,11 +7,11 @@ ARCH=DINOv2-LoRA:dinov2_vitl14
 LORA_RANK=8
 LORA_ALPHA=1
 
-VAE="XL,MSE,EMA"
+VAE="/root/autodl-tmp/AIGC_data/MSCOCO_XL,/root/autodl-tmp/AIGC_data/MSCOCO_MSE,/root/autodl-tmp/AIGC_data/MSCOCO_EMA"
 USE_RESIZE=true
 # RESIZE_FACTOR=0.25,0.5,0.75
 # UPPER_RESIZE_FACTOR=1.5,2,2.5
-RESIZE_FACTOR=0.2,0.4,0.6,0.8,1.0
+DOWN_RESIZE_FACTOR=0.2,0.4,0.6,0.8,1.0
 UPPER_RESIZE_FACTOR=1.0,1.5,2.0,2.5,3.0
 
 BATCH_SIZE=32
@@ -20,13 +20,13 @@ OPTIM=adam
 NITER=1
 ACCUMU_ITER=64
 
-GPU_IDS=1
+GPU_IDS=0
 
 USE_CONTRASTIVE=true
 
 OPT_FLAGS=""
 $USE_CONTRASTIVE && OPT_FLAGS+=" --contrastive"
-$USE_RESIZE && OPT_FLAGS+=" --resize_factors $RESIZE_FACTOR --upper_resize_factors $UPPER_RESIZE_FACTOR" || OPT_FLAGS+=""
+$USE_RESIZE && OPT_FLAGS+=" --down_resize_factors $DOWN_RESIZE_FACTOR --upper_resize_factors $UPPER_RESIZE_FACTOR" || OPT_FLAGS+=""
 
 python train.py \
     --name $EXP_NAME \

@@ -208,13 +208,15 @@ def recursively_read(rootdir, must_contain, exts=["PNG", "png", "jpg", "JPEG", "
     return out
 
 
-def get_list(path, must_contain=''):
+def get_list(path, must_contain='', eval_gen=False):
     if ".pickle" in path:
         with open(path, 'rb') as f:
             image_list = pickle.load(f)
         image_list = [ item for item in image_list if must_contain in item   ]
     else:
         image_list = recursively_read(path, must_contain)
+        if eval_gen:
+            image_list = [item for item in image_list if '0' in os.path.basename(item)]
     return image_list
 
 
@@ -229,12 +231,15 @@ class RealFakeDataset(Dataset):
                         arch,
                         jpeg_quality=None,
                         gaussian_sigma=None,
-                        resolution_thres=None):
+                        resolution_thres=None,
+                        key=None):
 
         # assert data_mode in ["wang2020", "ours"]
         self.jpeg_quality = jpeg_quality
         self.gaussian_sigma = gaussian_sigma
         self.resolution_thres = resolution_thres
+
+        self.key = key
         
         # = = = = = = data path = = = = = = = = = # 
         if type(real_path) == str and type(fake_path) == str:
@@ -268,6 +273,8 @@ class RealFakeDataset(Dataset):
 
     def read_path(self, real_path, fake_path, data_mode, max_sample):
 
+        is_eval_gen = self.key is not None and 'Eval_GEN' in self.key
+
         if data_mode == 'wang2020':
             real_list = get_list(real_path, must_contain='0_real')
             fake_list = get_list(fake_path, must_contain='1_fake')
@@ -276,7 +283,7 @@ class RealFakeDataset(Dataset):
             fake_list = []
             fake_path_list = fake_path.split(",")
             for fake_path in fake_path_list:
-                fake_list += get_list(fake_path)
+                fake_list += get_list(fake_path, eval_gen=is_eval_gen)
 
         def filter_by_resolution(image_list):
             if self.resolution_thres is None:
@@ -420,6 +427,7 @@ if __name__ == '__main__':
                                     jpeg_quality=opt.jpeg_quality, 
                                     gaussian_sigma=opt.gaussian_sigma,
                                     resolution_thres=opt.resolution_thres,
+                                    key=dataset_path['key']
                                     )
 
         loader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=False, num_workers=4)

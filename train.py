@@ -56,7 +56,7 @@ if __name__ == '__main__':
     model = Trainer(opt)
     
     data_loader = create_dataloader(opt)
-    val_loader = create_dataloader(opt)
+    val_loader = create_dataloader(val_opt)
 
     train_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "train"))
     val_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "val"))

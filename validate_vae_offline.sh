@@ -3,8 +3,8 @@
 # 模型相关设置
 DATA_MODE="ours"
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/multi_double_resize/model_iters_4000.pth"
-RESULT_FOLDER="./result/multi_double_resize/4000"
+CKPT="./checkpoints/multi_double_resize_no_accumu/model_epoch_0.pth"
+RESULT_FOLDER="./result/multi_double_resize_no_accumu"
 LORA_RANK=8
 LORA_ALPHA=1
 JPEG_QUALITY=95
@@ -105,6 +105,7 @@ EVAL_GEN_MODELS=( \
     "Flux" \
     "GoT" \
     "Infinity" \
+    "OmniGen" \
     "NOVA" \
     "sd14" \
     "sdxl" \

@@ -9,12 +9,15 @@ from random import random, choice, shuffle
 from io import BytesIO
 from PIL import Image
 from PIL import ImageFile
+from PIL import ImageDraw
 from scipy.ndimage.filters import gaussian_filter
 import pickle
 import os 
 from skimage.io import imread
 from copy import deepcopy
 import torch
+
+from tqdm import tqdm
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -145,6 +148,25 @@ class RandomGaussianNoise:
             return Image.fromarray(noisy_img)
         return img
     
+class RandomJPEGCompression:
+    def __init__(self, quality_lower=30, quality_upper=95, p=0.3):
+        self.quality_lower = quality_lower
+        self.quality_upper = quality_upper
+        self.p = p
+        
+    def __call__(self, img):
+        if random() < self.p:
+            quality = rd.randint(self.quality_lower, self.quality_upper)
+            out = BytesIO()
+            img.save(out, format='jpeg', quality=quality)
+            out.seek(0)
+            img = Image.open(out)
+            return img
+        return img
+    
+    def __repr__(self):
+        return self.__class__.__name__ + f'(quality_lower={self.quality_lower}, quality_upper={self.quality_upper}, p={self.p})'
+    
 
 class RandomResizedCropWithVariableSize(transforms.RandomResizedCrop):
     def __init__(self, min_size, max_size, scale=(0.08, 1.0), ratio=(1.0, 1.0), interpolation=transforms.InterpolationMode.BILINEAR):
@@ -176,6 +198,9 @@ def create_train_transforms(size=224, mean=(0.485, 0.456, 0.406), std=(0.229, 0.
     
     # 构建转换列表
     transform_list = [
+        # 随机JPEG压缩
+        RandomJPEGCompression(quality_lower=30, quality_upper=90, p=0.1),
+
         # 随机水平翻转
         transforms.RandomHorizontalFlip(),
         
@@ -612,6 +637,31 @@ class ComposedTransforms:
                 result[key] = val
                 
         return result
+    
+
+# Function to apply sequential resizing
+def apply_sequential_resize(image, first_factor, second_factor):
+    resampling_methods = [
+                        Image.NEAREST,
+                        Image.BOX,
+                        Image.BILINEAR,
+                        Image.HAMMING,
+                        Image.BICUBIC,
+                        Image.LANCZOS,
+                    ]
+    resized = image.copy()
+    
+    # Apply first resize
+    w, h = resized.size
+    new_w, new_h = int(w * first_factor), int(h * first_factor)
+    resized = resized.resize((new_w, new_h), rd.choice(resampling_methods))
+    
+    # Apply second resize
+    w, h = resized.size
+    new_w, new_h = int(w * second_factor), int(h * second_factor)
+    resized = resized.resize((new_w, new_h), rd.choice(resampling_methods))
+    
+    return resized
 
 
 class RealFakeDataset(Dataset):
@@ -635,14 +685,14 @@ class RealFakeDataset(Dataset):
         # else:
         #     self.resize_factors = []
 
-        self.resize_factors = [float(f) for f in opt.resize_factors.split(',')]
+        self.down_resize_factors = [float(f) for f in opt.down_resize_factors.split(',')]
         self.upper_resize_factors = [float(f) for f in opt.upper_resize_factors.split(',')]
         
         # Create a list of data samples, each sample is a dictionary
         self.data_list = []
         
         # Construct the complete dataset
-        for real_path in real_list:
+        for real_path in tqdm(real_list, desc="Loading vae rec data..."):
             # Create a data sample with real path and corresponding fake/resized paths
             sample = {
                 'real_path': real_path,
@@ -654,14 +704,27 @@ class RealFakeDataset(Dataset):
             # [real , real_0.5, real_2, fake, fake_resized_0.5, fake_resized_0.25]
             
             # Find corresponding fake and resized paths for each VAE model
-            for vae_name in self.vae_models:
-                # Construct fake path by replacing parts of the real path
-                fake_dir = f"{opt.real_list_path}_{vae_name}"
-                fake_path = real_path.replace(opt.real_list_path, fake_dir)
-                fake_path = os.path.splitext(fake_path)[0] + ".png"
-                if not os.path.exists(fake_path):
-                    print(f"{fake_path} not exists")
-                sample['fake_paths'].append(fake_path)
+            # for vae_name in self.vae_models:
+            #     # Construct fake path by replacing parts of the real path
+            #     fake_dir = f"{opt.real_list_path}_{vae_name}"
+            #     fake_path = real_path.replace(opt.real_list_path, fake_dir)
+            #     fake_path = os.path.splitext(fake_path)[0] + ".png"
+            #     if not os.path.exists(fake_path):
+            #         print(f"{fake_path} not exists")
+            #     sample['fake_paths'].append(fake_path)
+
+            basename_real_path = os.path.basename(real_path)
+            basename_real_path_without_suffix = os.path.splitext(basename_real_path)[0] 
+            basename_fake_path = basename_real_path_without_suffix + '.png'
+                        
+                        
+            for vae_rec_dir in self.vae_models:
+                
+                vae_rec_path = os.path.join(vae_rec_dir, f'{temp}2017', basename_fake_path)
+
+                if not os.path.exists(vae_rec_path):
+                    print(f"{vae_rec_path} not exists")
+                sample['fake_paths'].append(vae_rec_path)
             
             self.data_list.append(sample)
         
@@ -743,95 +806,35 @@ class RealFakeDataset(Dataset):
             for fake_path in sample['fake_paths']:
                 fake_img = Image.open(fake_path).convert("RGB")
                 img_dict['fake'].append(fake_img)
-            
-            resampling_methods = [
-                        Image.NEAREST,
-                        Image.BOX,
-                        Image.BILINEAR,
-                        Image.HAMMING,
-                        Image.BICUBIC,
-                        Image.LANCZOS,
-                    ]
 
-
-            resize_factor = rd.choice(self.resize_factors)
+            down_resize_factor = rd.choice(self.down_resize_factors)
             upper_resize_factor = rd.choice(self.upper_resize_factors)
 
-            # real resized
-            for factor in [resize_factor, upper_resize_factor]:
-                w, h = real_img.size
-                new_w = int(w * factor)
-                new_h = int(h * factor)
-                real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
-                img_dict['real_resized'].append(real_resized)
-
-            # # up then down
-            # w, h = real_img.size
-            # new_w = int(w * upper_resize_factor)
-            # new_h = int(h * upper_resize_factor)
-            # real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
-
-            # w, h = real_resized.size
-            # new_w = int(w * resize_factor)
-            # new_h = int(h * resize_factor)
-            # real_resized = real_resized.resize((new_w, new_h), rd.choice(resampling_methods))
-
-            # img_dict['real_resized'].append(real_resized)
-
-            # # down then up
-            # w, h = real_img.size
-            # new_w = int(w * resize_factor)
-            # new_h = int(h * resize_factor)
-            # real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
-
-            # w, h = real_resized.size
-            # new_w = int(w * upper_resize_factor)
-            # new_h = int(h * upper_resize_factor)
-            # real_resized = real_resized.resize((new_w, new_h), rd.choice(resampling_methods))
-
-            # img_dict['real_resized'].append(real_resized)
-
-            # fake resized
+            # Process real image (both resize orders)
+            img_dict['real_resized'].append(apply_sequential_resize(img_dict['real'], down_resize_factor, upper_resize_factor))
+            img_dict['real_resized'].append(apply_sequential_resize(img_dict['real'], upper_resize_factor, down_resize_factor))
+            
+            # Process all fake images (both resize orders)
             for fake_img in img_dict['fake']:
-                for factor in [resize_factor, upper_resize_factor]:
-                    w, h = fake_img.size
-                    new_w = int(w * factor)
-                    new_h = int(h * factor)
-                    fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
-                    img_dict['fake_resized'].append(fake_resized)
+                img_dict['fake_resized'].append(apply_sequential_resize(fake_img, down_resize_factor, upper_resize_factor))
+                img_dict['fake_resized'].append(apply_sequential_resize(fake_img, upper_resize_factor, down_resize_factor))
 
-                # # up then down
-                # w, h = fake_img.size
-                # new_w = int(w * upper_resize_factor)
-                # new_h = int(h * upper_resize_factor)
-                # fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
+            # # real resized
+            # for factor in [resize_factor, upper_resize_factor]:
+            #     w, h = real_img.size
+            #     new_w = int(w * factor)
+            #     new_h = int(h * factor)
+            #     real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
+            #     img_dict['real_resized'].append(real_resized)
 
-                # w, h = fake_resized.size
-                # new_w = int(w * resize_factor)
-                # new_h = int(h * resize_factor)
-                # fake_resized = fake_resized.resize((new_w, new_h), rd.choice(resampling_methods))
-
-                # img_dict['fake_resized'].append(fake_resized)
-
-                # # down then up
-                # w, h = fake_img.size
-                # new_w = int(w * resize_factor)
-                # new_h = int(h * resize_factor)
-                # fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
-
-                # w, h = fake_resized.size
-                # new_w = int(w * upper_resize_factor)
-                # new_h = int(h * upper_resize_factor)
-                # fake_resized = fake_resized.resize((new_w, new_h), rd.choice(resampling_methods))
-
-                # img_dict['real_resized'].append(fake_resized)
-
-            
-            
-            # print("real")
-            # print(np.array(img_dict["real"]))
-            # print("fake")
-            # print(np.array(img_dict['fake'][0]))
+            # # fake resized
+            # for fake_img in img_dict['fake']:
+            #     for factor in [resize_factor, upper_resize_factor]:
+            #         w, h = fake_img.size
+            #         new_w = int(w * factor)
+            #         new_h = int(h * factor)
+            #         fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
+            #         img_dict['fake_resized'].append(fake_resized)
 
             # Apply transforms to all images
             transformed_dict = self.transform(img_dict)
