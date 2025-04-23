@@ -10,6 +10,8 @@ from options.train_options import TrainOptions
 
 import shutil
 
+from dataset_paths import DATASET_PATHS
+
 import torch
 import random
 import numpy as np
@@ -56,7 +58,6 @@ if __name__ == '__main__':
     model = Trainer(opt)
     
     data_loader = create_dataloader(opt)
-    val_loader = create_dataloader(val_opt)
 
     train_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "train"))
     val_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "val"))
@@ -103,7 +104,7 @@ if __name__ == '__main__':
                     train_writer.add_scalar('loss', model.loss, model.total_steps)
                     print("Iter time: ", ((time.time()-start_time)/model.total_steps)  )
 
-                if model.total_steps in [100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000]: # save models at these iters 
+                if model.total_steps % 2000 == 0: # save models at these iters 
                     model.save_networks('model_iters_%s.pth' % model.total_steps)
 
             model.finalize_epoch()
@@ -113,12 +114,23 @@ if __name__ == '__main__':
             model.save_networks( 'model_epoch_best.pth' )
             model.save_networks( 'model_epoch_%s.pth' % epoch )
 
-        # Validation
-        model.eval()
-        ap, r_acc, f_acc, acc = validate(model.model, val_loader, gpu_id=opt.gpu_ids[0])
-        val_writer.add_scalar('accuracy', acc, model.total_steps)
-        val_writer.add_scalar('ap', ap, model.total_steps)
-        print("(Val @ epoch {}) r_acc: {}; f_acc: {}, acc: {}, ap: {}".format(epoch, r_acc, f_acc, acc, ap))
+        for dataset_path in DATASET_PATHS:
+                dataset = RealFakeDataset(  
+                    dataset_path['real_path'], 
+                    dataset_path['fake_path'], 
+                    dataset_path['data_mode'], 
+                    500, 
+                    opt.arch,
+                    key=dataset_path['key']
+                )
+
+                val_loader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=False, num_workers=4)
+
+                model.eval()
+                ap, r_acc, f_acc, acc = validate(model.model, val_loader, gpu_id=opt.gpu_ids[0])
+                val_writer.add_scalar('accuracy', acc, model.total_steps)
+                val_writer.add_scalar('ap', ap, model.total_steps)
+                print("(Val({}) @ epoch {}) r_acc: {}; f_acc: {}, acc: {}, ap: {}".format(dataset_path['key'], epoch, r_acc, f_acc, acc, ap))
 
         # early_stopping(acc, model)
         # if early_stopping.early_stop:

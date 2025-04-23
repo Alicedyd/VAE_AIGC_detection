@@ -798,7 +798,7 @@ class RealFakeDataset(Dataset):
             real_img = Image.open(real_img_path).convert("RGB")
 
             # 随机变为纯色
-            real_img = self.random_pure(real_img)
+            # real_img = self.random_pure(real_img)
 
             img_dict['real'] = real_img
             
@@ -810,31 +810,41 @@ class RealFakeDataset(Dataset):
             down_resize_factor = rd.choice(self.down_resize_factors)
             upper_resize_factor = rd.choice(self.upper_resize_factors)
 
-            # Process real image (both resize orders)
-            img_dict['real_resized'].append(apply_sequential_resize(img_dict['real'], down_resize_factor, upper_resize_factor))
-            img_dict['real_resized'].append(apply_sequential_resize(img_dict['real'], upper_resize_factor, down_resize_factor))
+            # # Process real image (both resize orders)
+            # img_dict['real_resized'].append(apply_sequential_resize(img_dict['real'], down_resize_factor, upper_resize_factor))
+            # img_dict['real_resized'].append(apply_sequential_resize(img_dict['real'], upper_resize_factor, down_resize_factor))
             
-            # Process all fake images (both resize orders)
-            for fake_img in img_dict['fake']:
-                img_dict['fake_resized'].append(apply_sequential_resize(fake_img, down_resize_factor, upper_resize_factor))
-                img_dict['fake_resized'].append(apply_sequential_resize(fake_img, upper_resize_factor, down_resize_factor))
-
-            # # real resized
-            # for factor in [resize_factor, upper_resize_factor]:
-            #     w, h = real_img.size
-            #     new_w = int(w * factor)
-            #     new_h = int(h * factor)
-            #     real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
-            #     img_dict['real_resized'].append(real_resized)
-
-            # # fake resized
+            # # Process all fake images (both resize orders)
             # for fake_img in img_dict['fake']:
-            #     for factor in [resize_factor, upper_resize_factor]:
-            #         w, h = fake_img.size
-            #         new_w = int(w * factor)
-            #         new_h = int(h * factor)
-            #         fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
-            #         img_dict['fake_resized'].append(fake_resized)
+            #     img_dict['fake_resized'].append(apply_sequential_resize(fake_img, down_resize_factor, upper_resize_factor))
+            #     img_dict['fake_resized'].append(apply_sequential_resize(fake_img, upper_resize_factor, down_resize_factor))
+
+            
+            resampling_methods = [
+                    Image.NEAREST,
+                    Image.BOX,
+                    Image.BILINEAR,
+                    Image.HAMMING,
+                    Image.BICUBIC,
+                    Image.LANCZOS,
+                ]
+                
+            # real resized
+            for factor in [down_resize_factor, upper_resize_factor]:
+                w, h = real_img.size
+                new_w = int(w * factor)
+                new_h = int(h * factor)
+                real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
+                img_dict['real_resized'].append(real_resized)
+
+            # fake resized
+            for fake_img in img_dict['fake']:
+                for factor in [down_resize_factor, upper_resize_factor]:
+                    w, h = fake_img.size
+                    new_w = int(w * factor)
+                    new_h = int(h * factor)
+                    fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
+                    img_dict['fake_resized'].append(fake_resized)
 
             # Apply transforms to all images
             transformed_dict = self.transform(img_dict)

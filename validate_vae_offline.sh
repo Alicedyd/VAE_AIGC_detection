@@ -3,8 +3,8 @@
 # 模型相关设置
 DATA_MODE="ours"
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/multi_double_resize_no_accumu/model_epoch_0.pth"
-RESULT_FOLDER="./result/multi_double_resize_no_accumu"
+CKPT="./checkpoints/mult_double_resize_pure_part/model_epoch_0.pth"
+RESULT_FOLDER="./result/multi_double_resize_pure_part"
 LORA_RANK=8
 LORA_ALPHA=1
 JPEG_QUALITY=95
@@ -26,43 +26,43 @@ BASE_NAME="DRCT-2M"
 BASE_PATH="/root/autodl-tmp/AIGC_data/DRCT-2M"
 
 # 数据集子目录和对应的 key
-DATASETS=( \
-    "controlnet-canny-sdxl-1.0:cn-sdxl" \
-    "lcm-lora-sdv1-5:lcm-sd15" \
-    "lcm-lora-sdxl:lcm-sdxl" \
-    "ldm-text2im-large-256:ldm-t2i" \
-    "sd-controlnet-canny:sd-cn" \
-    "sd-turbo:sd-turbo" \
-    "sd21-controlnet-canny:sd21-cn" \
-    "sdxl-turbo:sdxl-turbo" \
-    "stable-diffusion-2-1:sd21" \
-    "stable-diffusion-2-inpainting:sd21-inpainting" \
-    "stable-diffusion-inpainting:sd-inpainting" \
-    "stable-diffusion-v1-4:sd14" \
-    "stable-diffusion-v1-5:sd15" \
-    "stable-diffusion-xl-base-1.0:sdxl" \
-    "stable-diffusion-xl-refiner-1.0:sdxl-refiner" \
-    "stable-diffusion-xl-1.0-inpainting-0.1:sdxl-inpainting" \
-) 
-
 # DATASETS=( \
-#     "ldm-text2im-large-256:ldm-t2i" \
-#     "stable-diffusion-v1-4:sd14" \
-#     "stable-diffusion-v1-5:sd15" \
-#     "stable-diffusion-2-1:sd21" \
-#     "stable-diffusion-xl-base-1.0:sdxl" \
-#     "stable-diffusion-xl-refiner-1.0:sdxl-refiner" \
-#     "sd-turbo:sd-turbo" \
-#     "sdxl-turbo:sdxl-turbo" \
+#     "controlnet-canny-sdxl-1.0:cn-sdxl" \
 #     "lcm-lora-sdv1-5:lcm-sd15" \
 #     "lcm-lora-sdxl:lcm-sdxl" \
+#     "ldm-text2im-large-256:ldm-t2i" \
 #     "sd-controlnet-canny:sd-cn" \
+#     "sd-turbo:sd-turbo" \
 #     "sd21-controlnet-canny:sd21-cn" \
-#     "controlnet-canny-sdxl-1.0:sdxl-cn" \
-#     "stable-diffusion-inpainting:sd-inpainting" \
+#     "sdxl-turbo:sdxl-turbo" \
+#     "stable-diffusion-2-1:sd21" \
 #     "stable-diffusion-2-inpainting:sd21-inpainting" \
+#     "stable-diffusion-inpainting:sd-inpainting" \
+#     "stable-diffusion-v1-4:sd14" \
+#     "stable-diffusion-v1-5:sd15" \
+#     "stable-diffusion-xl-base-1.0:sdxl" \
+#     "stable-diffusion-xl-refiner-1.0:sdxl-refiner" \
 #     "stable-diffusion-xl-1.0-inpainting-0.1:sdxl-inpainting" \
-# )
+# ) 
+
+DATASETS=( \
+    "ldm-text2im-large-256:ldm-t2i" \
+    "stable-diffusion-v1-4:sd14" \
+    "stable-diffusion-v1-5:sd15" \
+    "stable-diffusion-2-1:sd21" \
+    "stable-diffusion-xl-base-1.0:sdxl" \
+    "stable-diffusion-xl-refiner-1.0:sdxl-refiner" \
+    "sd-turbo:sd-turbo" \
+    "sdxl-turbo:sdxl-turbo" \
+    "lcm-lora-sdv1-5:lcm-sd15" \
+    "lcm-lora-sdxl:lcm-sdxl" \
+    "sd-controlnet-canny:sd-cn" \
+    "sd21-controlnet-canny:sd21-cn" \
+    "controlnet-canny-sdxl-1.0:sdxl-cn" \
+    "stable-diffusion-inpainting:sd-inpainting" \
+    "stable-diffusion-2-inpainting:sd21-inpainting" \
+    "stable-diffusion-xl-1.0-inpainting-0.1:sdxl-inpainting" \
+)
 
 for ds in "${DATASETS[@]}"; do
     IFS=":" read -r NAME KEY <<< "$ds"
