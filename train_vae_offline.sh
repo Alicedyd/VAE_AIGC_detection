@@ -1,4 +1,4 @@
-EXP_NAME=flux_double_resize
+EXP_NAME=xl_flux_double_resize
 REAL_LIST="/root/autodl-tmp/AIGC_data/MSCOCO"
 FAKE_LIST="/root/autodl-tmp/AIGC_data/DRCT-2M/stable-diffusion-xl-base-1.0"
 DATA_MODE=mscoco
@@ -7,7 +7,7 @@ ARCH=DINOv2-LoRA:dinov2_vitl14
 LORA_RANK=8
 LORA_ALPHA=1
 
-VAE="/root/autodl-tmp/AIGC_data/MSCOCO_XL,/root/autodl-tmp/AIGC_data/MSCOCO_MSE,/root/autodl-tmp/AIGC_data/MSCOCO_EMA,/root/autodl-tmp/AIGC_data/flux-dev/1.0"
+VAE="/root/autodl-tmp/AIGC_data/MSCOCO_XL,/root/autodl-tmp/AIGC_data/flux-dev/1.0/"
 USE_RESIZE=true
 # RESIZE_FACTOR=0.25,0.5,0.75
 # UPPER_RESIZE_FACTOR=1.5,2,2.5

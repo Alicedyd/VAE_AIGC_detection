@@ -2,11 +2,13 @@ import os
 import time
 from tensorboardX import SummaryWriter
 
-from validate import validate, RealFakeDataset
+from validate import validate
 from data import create_dataloader
 from earlystop import EarlyStopping
 from networks.trainer import Trainer
 from options.train_options import TrainOptions
+
+from dataset_paths import RealFakeDataset
 
 import shutil
 
@@ -86,7 +88,7 @@ if __name__ == '__main__':
                     train_writer.add_scalar('loss', model.loss, model.total_steps)
                     print("Iter time: ", ((time.time()-start_time)/model.total_steps)  )
 
-                if model.total_steps % 1000 == 0: # save models for each 1000 steps 
+                if model.total_steps % 4000 == 0: # save models for each 1000 steps 
                     model.save_networks('model_iters_%s.pth' % model.total_steps)
 
             model.finalize_epoch()
@@ -104,7 +106,7 @@ if __name__ == '__main__':
                     train_writer.add_scalar('loss', model.loss, model.total_steps)
                     print("Iter time: ", ((time.time()-start_time)/model.total_steps)  )
 
-                if model.total_steps % 2000 == 0: # save models at these iters 
+                if model.total_steps % 4000 == 0: # save models at these iters 
                     model.save_networks('model_iters_%s.pth' % model.total_steps)
 
             model.finalize_epoch()

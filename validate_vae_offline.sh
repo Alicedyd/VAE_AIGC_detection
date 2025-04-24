@@ -1,142 +1,81 @@
 #!/bin/bash
+#
+# DeepFake Detection Model Evaluation Script
+# This script runs validation tests on various datasets for AI-generated image detection
+#
 
-# 模型相关设置
-DATA_MODE="ours"
+# ===== MODEL CONFIGURATION =====
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/mult_double_resize_pure_part/model_epoch_0.pth"
-RESULT_FOLDER="./result/multi_double_resize_pure_part"
+CKPT="./checkpoints/flux_double_resize/model_iters_42000.pth"
+RESULT_FOLDER="./result/flux_double_resize/42000"
+CONFIG_FILE="./configs/drct_genimage_chameleon_geneval.yaml"
+# ===== TRAINING PARAMETERS =====
 LORA_RANK=8
 LORA_ALPHA=1
-JPEG_QUALITY=95
-GPU_ID=0
+BATCH_SIZE=128
 
-SAVE_BAD_CASE=false
+# ===== TEST CONDITIONS =====
+JPEG_QUALITY=100  # Set quality for JPEG compression test (100 = no compression)
+GPU_ID=0          # GPU ID to use for evaluation
 
+# ===== DATA PARAMETERS =====
+DATA_MODE=""      # Optional data mode parameter
+
+# ===== OPTIONS =====
+SAVE_BAD_CASE=false     # Whether to save misclassified examples
+SKIP_PATH_CHECK=true  # Whether to skip checking if paths exist
+
+# Build optional flags
 OPT_FLAGS=""
-$SAVE_BAD_CASE && OPT_FLAGS+=" --save_bad_case"
 
-# 初始化路径和key字符串
-REAL_PATHS=()
-FAKE_PATHS=()
-KEYS=()
+if $SAVE_BAD_CASE; then 
+  OPT_FLAGS+=" --save_bad_case"
+  echo "Will save misclassified examples"
+fi
 
-# DRCT-2M 数据集设置
-# 数据集根目录
-BASE_NAME="DRCT-2M"
-BASE_PATH="/root/autodl-tmp/AIGC_data/DRCT-2M"
+if $SKIP_PATH_CHECK; then
+  OPT_FLAGS+=" --skip_path_check"
+  echo "Will skip path verification"
+fi
 
-# 数据集子目录和对应的 key
-# DATASETS=( \
-#     "controlnet-canny-sdxl-1.0:cn-sdxl" \
-#     "lcm-lora-sdv1-5:lcm-sd15" \
-#     "lcm-lora-sdxl:lcm-sdxl" \
-#     "ldm-text2im-large-256:ldm-t2i" \
-#     "sd-controlnet-canny:sd-cn" \
-#     "sd-turbo:sd-turbo" \
-#     "sd21-controlnet-canny:sd21-cn" \
-#     "sdxl-turbo:sdxl-turbo" \
-#     "stable-diffusion-2-1:sd21" \
-#     "stable-diffusion-2-inpainting:sd21-inpainting" \
-#     "stable-diffusion-inpainting:sd-inpainting" \
-#     "stable-diffusion-v1-4:sd14" \
-#     "stable-diffusion-v1-5:sd15" \
-#     "stable-diffusion-xl-base-1.0:sdxl" \
-#     "stable-diffusion-xl-refiner-1.0:sdxl-refiner" \
-#     "stable-diffusion-xl-1.0-inpainting-0.1:sdxl-inpainting" \
-# ) 
+MAX_SAMPLE=500
 
-DATASETS=( \
-    "ldm-text2im-large-256:ldm-t2i" \
-    "stable-diffusion-v1-4:sd14" \
-    "stable-diffusion-v1-5:sd15" \
-    "stable-diffusion-2-1:sd21" \
-    "stable-diffusion-xl-base-1.0:sdxl" \
-    "stable-diffusion-xl-refiner-1.0:sdxl-refiner" \
-    "sd-turbo:sd-turbo" \
-    "sdxl-turbo:sdxl-turbo" \
-    "lcm-lora-sdv1-5:lcm-sd15" \
-    "lcm-lora-sdxl:lcm-sdxl" \
-    "sd-controlnet-canny:sd-cn" \
-    "sd21-controlnet-canny:sd21-cn" \
-    "controlnet-canny-sdxl-1.0:sdxl-cn" \
-    "stable-diffusion-inpainting:sd-inpainting" \
-    "stable-diffusion-2-inpainting:sd21-inpainting" \
-    "stable-diffusion-xl-1.0-inpainting-0.1:sdxl-inpainting" \
-)
+# Create results directory
+mkdir -p "$RESULT_FOLDER"
 
-for ds in "${DATASETS[@]}"; do
-    IFS=":" read -r NAME KEY <<< "$ds"
-    REAL_PATHS+=("/root/autodl-tmp/AIGC_data/MSCOCO/val2017")
-    FAKE_PATHS+=("$BASE_PATH/$NAME/val2017")
-    KEYS+=("$BASE_NAME/$KEY")
-done
+# Log configuration to result folder
+echo "=== Configuration ===" > "$RESULT_FOLDER/config_summary.txt"
+echo "Architecture: $ARCH" >> "$RESULT_FOLDER/config_summary.txt"
+echo "Checkpoint: $CKPT" >> "$RESULT_FOLDER/config_summary.txt"
+echo "Config file: $CONFIG_FILE" >> "$RESULT_FOLDER/config_summary.txt"
+echo "LoRA rank: $LORA_RANK" >> "$RESULT_FOLDER/config_summary.txt"
+echo "LoRA alpha: $LORA_ALPHA" >> "$RESULT_FOLDER/config_summary.txt"
+echo "JPEG quality: $JPEG_QUALITY" >> "$RESULT_FOLDER/config_summary.txt"
+echo "Run date: $(date)" >> "$RESULT_FOLDER/config_summary.txt"
 
-# GenImage 数据集设置
-BASE_NAME="GenImage"
-BASE_PATH="/root/autodl-tmp/AIGC_data/GenImage"
+# Print startup message
+echo "Starting evaluation with $ARCH model"
+echo "Results will be saved to: $RESULT_FOLDER"
 
-# 数据集子目录和对应的 key
-DATASETS=( \
-    "ADM:ADM" \
-    "BigGAN:BigGAN" \
-    "glide:glide" \
-    "Midjourney:Midjourney" \
-    "stable_diffusion_v_1_4:sd14" \
-    "stable_diffusion_v_1_5:sd15" \
-    "VQDM:VQDM" \
-    "wukong:wukong" \
-) 
-
-for ds in "${DATASETS[@]}"; do
-    IFS=":" read -r NAME KEY <<< "$ds"
-    REAL_PATHS+=("$BASE_PATH/$NAME/val/nature")
-    FAKE_PATHS+=("$BASE_PATH/$NAME/val/ai")
-    KEYS+=("$BASE_NAME/$KEY")
-done
-
-# Chameleon 数据集
-REAL_PATHS+=("/root/autodl-tmp/AIGC_data/Chameleon/test/0_real")
-FAKE_PATHS+=("/root/autodl-tmp/AIGC_data/Chameleon/test/1_fake")
-KEYS+=("Chameleon")
-
-# 添加新的Eval_GEN路径
-BASE_NAME="Eval_GEN"
-EVAL_GEN_MODELS=( \
-    "Flux" \
-    "GoT" \
-    "Infinity" \
-    "OmniGen" \
-    "NOVA" \
-    "sd14" \
-    "sdxl" \
-)
-
-for model in "${EVAL_GEN_MODELS[@]}"; do
-    REAL_PATHS+=("/root/autodl-tmp/AIGC_data/MSCOCO/val2017")
-    FAKE_PATHS+=("/root/autodl-tmp/AIGC_data/Eval_GEN/$model")
-    KEYS+=("$BASE_NAME/$model")
-done
-
-# 添加GPT-ImgEval路径
-REAL_PATHS+=("/root/autodl-tmp/AIGC_data/MSCOCO/val2017")
-FAKE_PATHS+=("/root/autodl-tmp/AIGC_data/GPT-ImgEval")
-KEYS+=("GPT-ImgEval")
-
-# 拼接成逗号分隔的字符串
-REAL_PATH=$(IFS=, ; echo "${REAL_PATHS[*]}")
-FAKE_PATH=$(IFS=, ; echo "${FAKE_PATHS[*]}")
-KEY=$(IFS=, ; echo "${KEYS[*]}")
-
-# 执行 Python 脚本
+# Run the validation script
+echo "Running validation..."
 python validate.py \
-    --data_mode "$DATA_MODE" \
     --arch="$ARCH" \
-    --real_path "$REAL_PATH" \
-    --fake_path "$FAKE_PATH" \
-    --key="$KEY" \
+    --config="$CONFIG_FILE" \
     --ckpt="$CKPT" \
     --result_folder="$RESULT_FOLDER" \
+    --batch_size="$BATCH_SIZE" \
     --lora_rank="$LORA_RANK" \
     --lora_alpha="$LORA_ALPHA" \
-    --gpu_id "$GPU_ID" \
+    --jpeg_quality="$JPEG_QUALITY" \
+    --gpu_id="$GPU_ID" \
+    --max_sample=$MAX_SAMPLE \
     $OPT_FLAGS
+
+# Check if the run was successful
+if [ $? -eq 0 ]; then
+    echo "Evaluation completed successfully"
+    echo "Results are available in: $RESULT_FOLDER"
+else
+    echo "Evaluation failed with error code $?"
+fi
