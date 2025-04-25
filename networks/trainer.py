@@ -162,7 +162,7 @@ class Trainer(BaseModel):
 
         # self.input = torch.cat([input["real"], input["real_resized"], input["fake"], input["fake_resized"], input["interpolate"]], dim=0).to(self.device)
         input_stack = []
-        for key in ["real", "real_resized", "fake", "fake_resized", "interpolate"]:
+        for key in ["real", "real_resized", "fake", "fake_resized"]:
             if input[key] is not None:
                 input_stack.append(input[key])
         self.input = torch.cat(input_stack, dim=0).to(self.device)
@@ -173,10 +173,9 @@ class Trainer(BaseModel):
             "real_resized": 0,
             "fake": 1,
             "fake_resized": 1,
-            "interpolate": 1,
         }
         label_stack = []
-        for key in ["real", "real_resized", "fake", "fake_resized", "interpolate"]:
+        for key in ["real", "real_resized", "fake", "fake_resized"]:
             if input[key] is not None:
                 label_stack += [LABELS[key]] * len(input[key])
         self.label = torch.tensor(label_stack).to(self.device).float()

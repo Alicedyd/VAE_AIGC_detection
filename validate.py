@@ -18,6 +18,7 @@ import random
 import shutil
 from scipy.ndimage.filters import gaussian_filter
 import yaml
+import time
 
 SEED = 42
 def set_seed():
@@ -98,7 +99,7 @@ def validate(model, loader, find_thres=False, gpu_id=None, save_incorrect=False,
                 in_tens = img.cuda(gpu_id)
             else:
                 in_tens = img.cuda()
-            batch_preds = model(in_tens, return_feature=False).sigmoid().flatten().tolist()
+            batch_preds = model(in_tens).sigmoid().flatten().tolist()
             batch_size = len(batch_preds)
             
             # Check for incorrect fake predictions in this batch
@@ -231,7 +232,7 @@ class RealFakeDataset(Dataset):
             return True  # If any error occurs, consider it problematic
         
     def read_path(self, data_path, max_sample):
-        if 'Eval_GEN' in data_path and 'GPT-4o' not in data_path:
+        if 'GenEval' in data_path and 'GPT-4o' not in data_path:
             data_list = get_list(data_path, must_contain='_0.png')
         else:
             data_list = get_list(data_path, must_contain='')
@@ -391,6 +392,243 @@ def print_separator(title=None):
         print(f"\n{line}\n{title}\n{line}")
     else:
         print(f"\n{line}\n")
+
+import os
+import torch
+import yaml
+import csv
+import time
+from validate import validate, RealFakeDataset, collate_fn_filter_none
+
+def validate_and_save_results(model, config_path, result_file, iteration=None, epoch=None, 
+                             max_sample=500, batch_size=128, 
+                             gpu_id=0, save_bad_case=False, 
+                             jpeg_quality=None, gaussian_sigma=None, resolution_thres=None, 
+                             arch='res50'):
+    """
+    Validates model on datasets defined in config file and saves results
+    
+    Args:
+        model: The model to validate
+        config_path: Path to YAML config file with dataset definitions
+        result_file: Path to the CSV file for saving results
+        iteration: Current training iteration (optional)
+        epoch: Current epoch (optional)
+        max_sample: Maximum number of samples to test for each dataset
+        batch_size: Batch size for testing
+        gpu_id: GPU ID to use
+        save_bad_case: Whether to save misclassified examples
+        jpeg_quality: JPEG quality for robustness testing
+        gaussian_sigma: Gaussian sigma for robustness testing
+        resolution_thres: Resolution threshold range
+        arch: Model architecture name
+    
+    Returns:
+        Dictionary containing validation results
+    """
+    # Load config from YAML file
+    with open(config_path, 'r') as f:
+        dataset_configs = yaml.safe_load(f)
+    
+    # Dictionary to store results
+    results_dict = {}
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Create result directory if it doesn't exist
+    result_dir = os.path.dirname(result_file)
+    os.makedirs(result_dir, exist_ok=True)
+    
+    # Function to process dataset validation
+    def process_dataset(dataset_name, sub_dataset, real_path, fake_path):
+        print(f"\n{'-' * 50}")
+        print(f"Evaluating {dataset_name}/{sub_dataset}")
+        print(f"{'-' * 50}")
+        
+        # Create real dataset if provided
+        if real_path:
+            real_dataset = RealFakeDataset(
+                data_path=real_path,
+                label=0,  # Real images have label 0
+                max_sample=max_sample,
+                arch=arch,
+                jpeg_quality=jpeg_quality,
+                gaussian_sigma=gaussian_sigma,
+                resolution_thres=resolution_thres,
+            )
+            
+            # Skip if not enough images
+            if len(real_dataset) == 0:
+                print(f"Warning: No real images found for {dataset_name}/{sub_dataset}")
+                r_acc_real = None
+            else:
+                # Validate real dataset
+                real_loader = torch.utils.data.DataLoader(
+                    real_dataset, batch_size=batch_size, shuffle=False, 
+                    num_workers=4, collate_fn=collate_fn_filter_none
+                )
+                ap_real, r_acc_real, f_acc_real, acc_real = validate(
+                    model, real_loader, find_thres=False, gpu_id=gpu_id, 
+                    save_incorrect=False
+                )
+        else:
+            # If no real path, set accuracy to None
+            r_acc_real = None
+        
+        # Create and validate fake dataset if provided
+        if fake_path:
+            fake_dataset = RealFakeDataset(
+                data_path=fake_path,
+                label=1,  # Fake images have label 1
+                max_sample=max_sample,
+                arch=arch,
+                jpeg_quality=jpeg_quality,
+                gaussian_sigma=gaussian_sigma,
+                resolution_thres=resolution_thres,
+            )
+            
+            # Skip if not enough images
+            if len(fake_dataset) == 0:
+                print(f"Warning: No fake images found for {dataset_name}/{sub_dataset}")
+                f_acc_fake = None
+            else:
+                # Set up bad case saving directory if needed
+                save_dir = None
+                if save_bad_case:
+                    save_dir = os.path.join(result_dir, f"bad_case/{dataset_name}_{sub_dataset}")
+                
+                # Validate fake dataset
+                fake_loader = torch.utils.data.DataLoader(
+                    fake_dataset, batch_size=batch_size, shuffle=False, 
+                    num_workers=4, collate_fn=collate_fn_filter_none
+                )
+                ap_fake, r_acc_fake, f_acc_fake, acc_fake = validate(
+                    model, fake_loader, find_thres=False, gpu_id=gpu_id, 
+                    save_incorrect=save_bad_case, save_dir=save_dir
+                )
+        else:
+            # If no fake path, set accuracy to None
+            f_acc_fake = None
+        
+        # Calculate average accuracy if both real and fake are available
+        if r_acc_real is not None and f_acc_fake is not None:
+            avg_acc = (r_acc_real + f_acc_fake) / 2
+            print(f"{dataset_name}/{sub_dataset} - Real Acc: {r_acc_real:.4f}, Fake Acc: {f_acc_fake:.4f}, Avg: {avg_acc:.4f}")
+        elif r_acc_real is not None:
+            avg_acc = None  # Don't calculate average if only real is available
+            print(f"{dataset_name}/{sub_dataset} - Real Acc: {r_acc_real:.4f}")
+        elif f_acc_fake is not None:
+            avg_acc = None  # Don't calculate average if only fake is available
+            print(f"{dataset_name}/{sub_dataset} - Fake Acc: {f_acc_fake:.4f}")
+        else:
+            avg_acc = None
+            print(f"{dataset_name}/{sub_dataset} - No accuracy data")
+        
+        return (r_acc_real, f_acc_fake, avg_acc)
+    
+    # Process datasets according to config
+    
+    # Process DRCT dataset
+    if 'DRCT' in dataset_configs:
+        drct_config = dataset_configs['DRCT']
+        real_path = drct_config.get('real')
+        
+        for sub_dataset, sub_path in drct_config.items():
+            if sub_dataset == 'real':
+                continue  # Skip the real path entry
+            
+            if isinstance(sub_path, dict) and 'fake' in sub_path:
+                fake_path = sub_path['fake']
+                results = process_dataset('DRCT', sub_dataset, real_path, fake_path)
+                if results:
+                    dataset_key = f"DRCT-{sub_dataset}"
+                    results_dict[dataset_key] = results
+    
+    # Process GenImage dataset
+    if 'GenImage' in dataset_configs:
+        genimage_config = dataset_configs['GenImage']
+        
+        for sub_dataset, sub_config in genimage_config.items():
+            if isinstance(sub_config, dict):
+                real_path = sub_config.get('real')
+                fake_path = sub_config.get('fake')
+                results = process_dataset('GenImage', sub_dataset, real_path, fake_path)
+                if results:
+                    dataset_key = f"GenImage-{sub_dataset}"
+                    results_dict[dataset_key] = results
+    
+    # Process Chameleon dataset
+    if 'Chameleon' in dataset_configs:
+        chameleon_config = dataset_configs['Chameleon']
+        
+        for sub_dataset, sub_config in chameleon_config.items():
+            if isinstance(sub_config, dict):
+                real_path = sub_config.get('real')
+                fake_path = sub_config.get('fake')
+                results = process_dataset('Chameleon', sub_dataset, real_path, fake_path)
+                if results:
+                    dataset_key = f"Chameleon-{sub_dataset}"
+                    results_dict[dataset_key] = results
+    
+    # Process GenEval dataset
+    if 'GenEval' in dataset_configs:
+        geneval_config = dataset_configs['GenEval']
+        
+        for sub_dataset, sub_path in geneval_config.items():
+            if isinstance(sub_path, dict) and 'fake' in sub_path:
+                fake_path = sub_path['fake']
+                results = process_dataset('GenEval', sub_dataset, None, fake_path)
+                if results:
+                    dataset_key = f"GenEval-{sub_dataset}"
+                    results_dict[dataset_key] = results
+    
+    # Get sorted dataset keys for consistent column order
+    dataset_keys = sorted(results_dict.keys())
+    
+    # Check if results file exists, create with header if not
+    file_exists = os.path.isfile(result_file)
+    
+    # Save results to CSV file with transposed format (metrics as rows)
+    with open(result_file, 'a', newline='') as f:
+        writer = csv.writer(f)
+        
+        # Write header if file is new
+        if not file_exists:
+            header = ['Timestamp', 'Iteration', 'Epoch', 'MetricType'] + dataset_keys
+            writer.writerow(header)
+        
+        # Write real accuracy row
+        real_row = [timestamp, iteration if iteration is not None else '', epoch if epoch is not None else '', 'RealAcc']
+        for key in dataset_keys:
+            r_acc, _, _ = results_dict[key]
+            real_row.append(r_acc if r_acc is not None else '')
+        writer.writerow(real_row)
+        
+        # Write fake accuracy row
+        fake_row = [timestamp, iteration if iteration is not None else '', epoch if epoch is not None else '', 'FakeAcc']
+        for key in dataset_keys:
+            _, f_acc, _ = results_dict[key]
+            fake_row.append(f_acc if f_acc is not None else '')
+        writer.writerow(fake_row)
+        
+        # Write average accuracy row
+        avg_row = [timestamp, iteration if iteration is not None else '', epoch if epoch is not None else '', 'AvgAcc']
+        for key in dataset_keys:
+            _, _, avg_acc = results_dict[key]
+            # Only write average if we have both real and fake accuracies
+            if avg_acc is not None:
+                avg_row.append(avg_acc)
+            else:
+                # Calculate average for datasets with both metrics
+                r_acc, f_acc, _ = results_dict[key]
+                if r_acc is not None and f_acc is not None:
+                    avg_row.append((r_acc + f_acc) / 2)
+                else:
+                    avg_row.append('')
+        writer.writerow(avg_row)
+    
+    print(f"Results saved to {result_file}")
+    
+    return results_dict
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)

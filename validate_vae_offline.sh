@@ -6,8 +6,8 @@
 
 # ===== MODEL CONFIGURATION =====
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/flux_double_resize/model_iters_42000.pth"
-RESULT_FOLDER="./result/flux_double_resize/42000"
+CKPT="./checkpoints/flux_double_resize/model_iters_28000.pth"
+RESULT_FOLDER="./result/flux_double_resize"
 CONFIG_FILE="./configs/drct_genimage_chameleon_geneval.yaml"
 # ===== TRAINING PARAMETERS =====
 LORA_RANK=8
@@ -16,7 +16,7 @@ BATCH_SIZE=128
 
 # ===== TEST CONDITIONS =====
 JPEG_QUALITY=100  # Set quality for JPEG compression test (100 = no compression)
-GPU_ID=0          # GPU ID to use for evaluation
+GPU_ID=1          # GPU ID to use for evaluation
 
 # ===== DATA PARAMETERS =====
 DATA_MODE=""      # Optional data mode parameter

@@ -1,0 +1,19 @@
+RobustLDM:
+  kandinsky:
+    real: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/real
+    fake: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/kandinsky
+  latent_consistency:
+    real: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/real
+    fake: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/latent_consistency
+  mj:
+    real: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/real
+    fake: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/mj
+  pixelart:
+    real: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/real
+    fake: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/pixelart
+  playground:
+    real: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/real
+    fake: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/playground
+  sd:
+    real: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/real
+    fake: /root/autodl-tmp/AIGC_data/Robust_LDM/origin/sd

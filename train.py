@@ -2,7 +2,7 @@ import os
 import time
 from tensorboardX import SummaryWriter
 
-from validate import validate
+from validate import validate, validate_and_save_results
 from data import create_dataloader
 from earlystop import EarlyStopping
 from networks.trainer import Trainer
@@ -17,6 +17,8 @@ from dataset_paths import DATASET_PATHS
 import torch
 import random
 import numpy as np
+import yaml
+import time
 
 
 def set_seed(seed):
@@ -60,6 +62,9 @@ if __name__ == '__main__':
     model = Trainer(opt)
     
     data_loader = create_dataloader(opt)
+
+    results_file = os.path.join("./checkpoints", opt.name, "validation_results.csv")
+    config_path = "./configs/drct_genimage_chameleon_geneval.yaml"  # Add this argument to TrainOptions
 
     train_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "train"))
     val_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "val"))
@@ -106,8 +111,23 @@ if __name__ == '__main__':
                     train_writer.add_scalar('loss', model.loss, model.total_steps)
                     print("Iter time: ", ((time.time()-start_time)/model.total_steps)  )
 
-                if model.total_steps % 4000 == 0: # save models at these iters 
+                if model.total_steps % 5000 == 0: # save models at these iters 
                     model.save_networks('model_iters_%s.pth' % model.total_steps)
+                    
+                    # Run validation and save results
+                    model.eval()
+                    validate_and_save_results(
+                        model.model, 
+                        config_path, 
+                        results_file,
+                        iteration=model.total_steps,
+                        epoch=epoch,
+                        max_sample=500,
+                        batch_size=128,
+                        gpu_id=opt.gpu_ids[0],
+                        arch=opt.arch
+                    )
+                    model.train()
 
             model.finalize_epoch()
 
@@ -116,24 +136,19 @@ if __name__ == '__main__':
             model.save_networks( 'model_epoch_best.pth' )
             model.save_networks( 'model_epoch_%s.pth' % epoch )
 
-        for dataset_path in DATASET_PATHS:
-                dataset = RealFakeDataset(  
-                    dataset_path['real_path'], 
-                    dataset_path['fake_path'], 
-                    dataset_path['data_mode'], 
-                    500, 
-                    opt.arch,
-                    key=dataset_path['key']
-                )
-
-                val_loader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=False, num_workers=4)
-
-                model.eval()
-                ap, r_acc, f_acc, acc = validate(model.model, val_loader, gpu_id=opt.gpu_ids[0])
-                val_writer.add_scalar('accuracy', acc, model.total_steps)
-                val_writer.add_scalar('ap', ap, model.total_steps)
-                print("(Val({}) @ epoch {}) r_acc: {}; f_acc: {}, acc: {}, ap: {}".format(dataset_path['key'], epoch, r_acc, f_acc, acc, ap))
-
+        model.eval()
+        validate_and_save_results(
+            model.model, 
+            config_path, 
+            results_file,
+            iteration=model.total_steps,
+            epoch=epoch,
+            max_sample=500,
+            batch_size=128,
+            gpu_id=opt.gpu_ids[0],
+            arch=opt.arch
+        )
+        model.train()
         # early_stopping(acc, model)
         # if early_stopping.early_stop:
         #     cont_train = model.adjust_learning_rate()

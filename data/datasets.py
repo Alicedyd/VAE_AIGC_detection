@@ -60,44 +60,6 @@ class RandomGaussianNoise:
             # 转回PIL图像
             return Image.fromarray(noisy_img)
         return img
-    
-class RandomJPEGCompression:
-    def __init__(self, quality_lower=30, quality_upper=95, p=0.3):
-        self.quality_lower = quality_lower
-        self.quality_upper = quality_upper
-        self.p = p
-        
-    def __call__(self, img):
-        if random() < self.p:
-            quality = rd.randint(self.quality_lower, self.quality_upper)
-            out = BytesIO()
-            img.save(out, format='jpeg', quality=quality)
-            out.seek(0)
-            img = Image.open(out)
-            return img
-        return img
-    
-    def __repr__(self):
-        return self.__class__.__name__ + f'(quality_lower={self.quality_lower}, quality_upper={self.quality_upper}, p={self.p})'
-    
-
-class RandomResizedCropWithVariableSize(transforms.RandomResizedCrop):
-    def __init__(self, min_size, max_size, scale=(0.08, 1.0), ratio=(1.0, 1.0), interpolation=transforms.InterpolationMode.BILINEAR):
-        self.min_size = min_size
-        self.max_size = max_size
-        super().__init__(size=min_size, scale=scale, ratio=ratio, interpolation=interpolation)
-    
-    def get_random_size(self):
-        """Return a random size between min_size and max_size."""
-        size = random.randint(self.min_size, self.max_size)
-        return size
-
-    def __call__(self, img):
-        size = img.size 
-        size = tuple(int(element * 0.54) for element in size)
-        i, j, h, w = self.get_params(img, self.scale, self.ratio)
-        ret =  F.resized_crop(img, i, j, h, w, size, self.interpolation, antialias=self.antialias)
-        return ret
 
 
 def create_train_transforms(size=224, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), is_crop=True):
@@ -111,8 +73,6 @@ def create_train_transforms(size=224, mean=(0.485, 0.456, 0.406), std=(0.229, 0.
     
     # 构建转换列表
     transform_list = [
-        # 随机JPEG压缩
-        RandomJPEGCompression(quality_lower=30, quality_upper=90, p=0.1),
 
         # 随机水平翻转
         transforms.RandomHorizontalFlip(),
@@ -588,6 +548,8 @@ class RealFakeDataset(Dataset):
         # Get real image paths
         real_list = get_list(os.path.join(opt.real_list_path, f'{temp}2017'))
         real_list.sort()
+
+        self.opt = opt
         
         # Create mapping to fake and resized paths
         self.vae_models = opt.vae_models.split(',')
@@ -702,7 +664,6 @@ class RealFakeDataset(Dataset):
                 'fake': [],
                 'real_resized': [],
                 'fake_resized': [],
-                'interpolate': []
             }
             
             # Load real image
@@ -717,7 +678,15 @@ class RealFakeDataset(Dataset):
             # Load fake images
             for fake_path in sample['fake_paths']:
                 fake_img = Image.open(fake_path).convert("RGB")
-                img_dict['fake'].append(fake_img)
+                if self.opt.p_blend > 0 and random() < self.opt.p_blend:
+                    if fake_img.size != real_img.size:
+                        real_img_resized = real_img.resize(fake_img.size, Image.LANCZOS)
+                        interpolated_img = Image.blend(real_img_resized, fake_img, self.opt.ratio_blend)
+                    else:
+                        interpolated_img = Image.blend(real_img, fake_img, self.opt.ratio_blend)
+                    img_dict['fake'].append(interpolated_img)
+                else:
+                    img_dict['fake'].append(fake_img)
 
             down_resize_factor = rd.choice(self.down_resize_factors)
             upper_resize_factor = rd.choice(self.upper_resize_factors)
@@ -749,14 +718,24 @@ class RealFakeDataset(Dataset):
                 real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
                 img_dict['real_resized'].append(real_resized)
 
-            # # real resized
-            # for i in range(len(self.vae_models)):
-            #     for factor in [down_resize_factor, upper_resize_factor]:
-            #         w, h = real_img.size
-            #         new_w = int(w * factor)
-            #         new_h = int(h * factor)
-            #         real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
-            #         img_dict['real_resized'].append(real_resized)
+            # # Process real image (both resize orders)
+            # for downfactor in [0.9, 0.95, 1.0]:
+            #     img_dict['real_resized'].append(
+            #         apply_sequential_resize(img_dict['real'], downfactor, upper_resize_factor)
+            #     )
+            # for upfactor in [1.0, 1.05, 1.10]:
+            #     img_dict['real_resized'].append(
+            #         apply_sequential_resize(img_dict['real'], upfactor, down_resize_factor)
+            #     )
+
+            # real resized
+            for i in range(len(self.vae_models)):
+                for factor in [down_resize_factor, upper_resize_factor]:
+                    w, h = real_img.size
+                    new_w = int(w * factor)
+                    new_h = int(h * factor)
+                    real_resized = real_img.resize((new_w, new_h), rd.choice(resampling_methods))
+                    img_dict['real_resized'].append(real_resized)
 
             # fake resized
             for fake_img in img_dict['fake']:
@@ -766,16 +745,6 @@ class RealFakeDataset(Dataset):
                     new_h = int(h * factor)
                     fake_resized = fake_img.resize((new_w, new_h), rd.choice(resampling_methods))
                     img_dict['fake_resized'].append(fake_resized)
-
-            # real fake interpolate
-            # for fake_img in img_dict['fake']:
-            #     if fake_img.size != real_img.size:
-            #         resized_fake_img = fake_img.resize(real_img.size)
-            #     else:
-            #         resized_fake_img = fake_img.copy()
-
-            #     interpolated_img = Image.blend(real_img, resized_fake_img, 0.25)
-            #     img_dict['interpolate'].append(interpolated_img)
 
             # Apply transforms to all images
             transformed_dict = self.transform(img_dict)
@@ -801,7 +770,6 @@ def custom_collate_fn(batch):
     fake_images = []
     real_resized_images = []
     fake_resized_images = []
-    interpolate_images = []
     
     # Create labels
     # batch_real_num = batch[0]['batch_real_num']
@@ -823,10 +791,6 @@ def custom_collate_fn(batch):
         for fake_resize_img in item['fake_resized']:
             if fake_resize_img is not None:
                 fake_resized_images.append(fake_resize_img)
-
-        for interpolate_img in item['interpolate']:
-            if interpolate_img is not None:
-                interpolate_images.append(interpolate_img)
     
     # Combine all images
     # all_images = []
@@ -838,12 +802,8 @@ def custom_collate_fn(batch):
     real_resized_images_tensor = torch.stack(real_resized_images)
     fake_images_tensor = torch.stack(fake_images)
     fake_resized_images_tensor = torch.stack(fake_resized_images)
-    if len(interpolate_images) == 0:
-        interpolate_images_tensor = None
-    else:
-        interpolate_images_tensor = torch.stack(interpolate_images)
     
-    return {"real": real_images_tensor, "real_resized": real_resized_images_tensor, "fake": fake_images_tensor, "fake_resized": fake_resized_images_tensor, 'interpolate': interpolate_images_tensor}
+    return {"real": real_images_tensor, "real_resized": real_resized_images_tensor, "fake": fake_images_tensor, "fake_resized": fake_resized_images_tensor}
     # Stack images into a single tensor
     # images_tensor = torch.stack(all_images, dim=0)
     # labels_tensor = torch.tensor(labels)
