@@ -110,19 +110,23 @@ class DINOv2Model(nn.Module):
         if unexpected_keys:
             print(f"warning: unexpected keys when loading model weights: {unexpected_keys}")
     
-    def forward(self, x, return_feature=False):
+    def forward(self, x, return_feature=False, return_tokens=False):
 
         if hasattr(self.model, 'forward_features'):
             features_dict = self.model.forward_features(x)
             features = features_dict['x_norm_clstoken']
+            token_features = features_dict['x_norm_patchtokens']
         else:
 
-            features = self.model(x)       
+            features = self.model(x)
       
             if isinstance(features, dict):
                 features = features.get('x_norm_clstoken', features.get('last_hidden_state', None)[:, 0])
+                token_features = features.get('x_norm_patchtokens', None)
             
-        if return_feature:
+        if return_feature and return_tokens:
+            return features, token_features, self.fc(features)
+        elif return_feature:
             return features, self.fc(features)
         
         

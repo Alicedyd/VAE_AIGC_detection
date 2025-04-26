@@ -44,5 +44,5 @@ class DINOv2ModelWithLoRA(nn.Module):
         print(f"LoRA #Param: {total_lora_params:,}, classifier #Param: {total_fc_params:,}")
         return list(lora_params) + list(fc_params)
     
-    def forward(self, x, return_feature=False):
-        return self.base_model(x, return_feature=return_feature)
+    def forward(self, x, return_feature=False, return_tokens=False):
+        return self.base_model(x, return_feature=return_feature, return_tokens=return_tokens)

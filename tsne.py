@@ -27,9 +27,11 @@ TSNE_DATASET_PATHS = [
 
     {'real_path': '', 'fake_path': '/root/autodl-tmp/AIGC_data/MSCOCO_XL/val2017', 'data_mode': 'ours', 'key': 'XL-VAE'},
 
-    {'real_path': '', 'fake_path': '/root/autodl-tmp/AIGC_data/DRCT-2M/stable-diffusion-xl-base-1.0/val2017', 'data_mode': 'ours', 'key': 'XL-FAKE'},
+    {'real_path': '', 'fake_path': '/root/autodl-tmp/AIGC_data/flux-dev/1.0/val2017', 'data_mode': 'ours', 'key': 'FLUX'}
 
-    {'real_path': '', 'fake_path': '/root/autodl-tmp/AIGC_data/DRCT-2M/stable-diffusion-xl-1.0-inpainting-0.1//val2017', 'data_mode': 'ours', 'key': 'XL-Inpainting'},
+    # {'real_path': '', 'fake_path': '/root/autodl-tmp/AIGC_data/DRCT-2M/stable-diffusion-xl-base-1.0/val2017', 'data_mode': 'ours', 'key': 'XL-FAKE'},
+
+    # {'real_path': '', 'fake_path': '/root/autodl-tmp/AIGC_data/DRCT-2M/stable-diffusion-xl-1.0-inpainting-0.1//val2017', 'data_mode': 'ours', 'key': 'XL-Inpainting'},
 
     # {'real_path': '', 'fake_path': '/root/autodl-tmp/AIGC_data/MSCOCO_MSE/val2017', 'data_mode': 'ours', 'key': 'MSE'},
 
@@ -202,7 +204,7 @@ ARCH="DINOv2-LoRA:dinov2_vitl14"
 
 # 1. 加载预训练模型
 model = get_model(ARCH)
-state_dict = torch.load("/root/autodl-tmp/code/VAE_RESIZE_AIGC_detection/checkpoints/multi_double_resize/model_epoch_0.pth", map_location='cpu')['model']
+state_dict = torch.load("checkpoints/dinov2_lora8_VAE_sdxl_flux_resize_lr1e-5_bs32_acc64_2epoch_PBLEND_0.25RBLEND_0.25/model_iters_30000.pth", map_location='cpu')['model']
 #model.fc.load_state_dict(state_dict)
 model.load_state_dict(state_dict)
 

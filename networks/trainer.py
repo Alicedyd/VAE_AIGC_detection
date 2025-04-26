@@ -76,8 +76,59 @@ import torch.nn as nn
 from networks.base_model import BaseModel, init_weights
 import sys
 from models import get_model
+import torchvision.transforms.functional as F
 
 from pytorch_metric_learning import losses
+
+class TokenWiseContrastiveLoss(nn.Module):
+    def __init__(self, temperature=0.07):
+        super(TokenWiseContrastiveLoss, self).__init__()
+        self.temperature = temperature
+        
+    def forward(self, token_features, token_masks):
+        """
+        Args:
+            token_features: Tensor of shape [B, N, D] where B is batch size, 
+                          N is number of tokens, D is feature dim
+            token_masks: Binary tensor of shape [B, N] where 1 indicates 
+                        fake tokens and 0 indicates real tokens
+        """
+        # Ensure proper shape
+        B, N, D = token_features.shape
+        token_features = token_features.reshape(-1, D)  # [B*N, D]
+        
+        # Create token labels based on image labels
+        token_labels = token_masks.reshape(-1)  # [B*N]
+        
+        # Normalize features
+        token_features = torch.nn.functional.normalize(token_features, p=2, dim=1)  # Use full path and correct parameters
+        
+        # Get real and fake token indices
+        real_indices = (token_labels == 0).nonzero(as_tuple=True)[0]
+        fake_indices = (token_labels == 1).nonzero(as_tuple=True)[0]
+        
+        # If either real or fake tokens are missing, return zero loss
+        if len(real_indices) == 0 or len(fake_indices) == 0:
+            return torch.tensor(0.0, device=token_features.device)
+        
+        # Get features of real and fake tokens
+        real_features = token_features[real_indices]
+        fake_features = token_features[fake_indices]
+        
+        # Compute pairwise similarities
+        similarity_matrix = torch.matmul(real_features, fake_features.T) / self.temperature
+        
+        # Compute contrastive loss
+        real_to_fake_max, _ = torch.max(similarity_matrix, dim=1)
+        real_to_fake_loss = -torch.log(1 - torch.sigmoid(real_to_fake_max) + 1e-6).mean()
+        
+        fake_to_real_max, _ = torch.max(similarity_matrix.T, dim=1)
+        fake_to_real_loss = -torch.log(1 - torch.sigmoid(fake_to_real_max) + 1e-6).mean()
+        
+        # Combined loss
+        total_loss = (real_to_fake_loss + fake_to_real_loss) / 2
+        
+        return total_loss
 
 class Trainer(BaseModel):
     def name(self):
@@ -140,10 +191,17 @@ class Trainer(BaseModel):
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer,eta_min=opt.lr * 0.001, T_max=1000)
         self.loss_fn = nn.BCEWithLogitsLoss()
 
+        # Regular Contrastive Learning
         self.contrastive = opt.contrastive
         if self.contrastive:
             self.contrastive_loss_fn = losses.ContrastiveLoss(pos_margin=0.0, neg_margin=1.0)
             self.contrastive_alpha = 0.5
+
+        # Token-wise Contrastive Learning
+        self.token_contrastive = opt.token_contrastive if hasattr(opt, 'token_contrastive') else False
+        if self.token_contrastive:
+            self.token_contrastive_loss_fn = TokenWiseContrastiveLoss(temperature=opt.temperature if hasattr(opt, 'temperature') else 0.07)
+            self.token_contrastive_alpha = opt.token_contrastive_alpha if hasattr(opt, 'token_contrastive_alpha') else 0.3
 
         if hasattr(opt, 'device'):
             self.device = opt.device
@@ -181,10 +239,19 @@ class Trainer(BaseModel):
         self.label = torch.tensor(label_stack).to(self.device).float()
 
     def forward(self):
-        if self.contrastive:
+        if self.contrastive and self.token_contrastive:
+            # Get global features, token features, and output
+            self.feature, self.token_features, self.output = self.model(self.input, return_feature=True, return_tokens=True)
+        elif self.contrastive:
+            # Get only global features and output
             self.feature, self.output = self.model(self.input, return_feature=True)
+        elif self.token_contrastive:
+            # Get only token features and output
+            _, self.token_features, self.output = self.model(self.input, return_feature=False, return_tokens=True)
         else:
+            # Get only output
             self.output = self.model(self.input)
+        
         if hasattr(self.output, 'view'):  
             self.output = self.output.view(-1).unsqueeze(1)
 
@@ -192,15 +259,39 @@ class Trainer(BaseModel):
         return self.loss_fn(self.output.squeeze(1), self.label)
 
     def optimize_parameters(self):
+        self.current_step += 1
         self.forward()
 
+        # Calculate classification loss
+        cls_loss = self.loss_fn(self.output.squeeze(1), self.label)
+        
+        # Initialize total loss with classification loss
+        total_loss = cls_loss
+        
+        # Add global contrastive loss if enabled
         if self.contrastive:
-            self.loss = (1 - self.contrastive_alpha) * self.loss_fn(self.output.squeeze(1), self.label) + self.contrastive_alpha * self.contrastive_loss_fn(self.feature, self.label)
-        else:
-            self.loss = self.loss_fn(self.output.squeeze(1), self.label) 
-
+            contrastive_loss = self.contrastive_loss_fn(self.feature, self.label)
+            total_loss = (1 - self.contrastive_alpha) * total_loss + self.contrastive_alpha * contrastive_loss
+        
+        # Add token-wise contrastive loss if enabled
+        if self.token_contrastive:
+            # Create token masks based on image labels
+            B = self.label.size(0)
+            N = self.token_features.size(1)  # Number of tokens per image
+            
+            # Repeat each image label for all of its tokens
+            token_masks = self.label.unsqueeze(1).repeat(1, N)
+            
+            token_contrastive_loss = self.token_contrastive_loss_fn(self.token_features, token_masks)
+            total_loss = (1 - self.token_contrastive_alpha) * total_loss + self.token_contrastive_alpha * token_contrastive_loss
+        
+        # Save the final loss
+        self.loss = total_loss
+        
+        # Apply gradient accumulation
         self.loss = self.loss / self.accumulation_steps
         self.loss.backward()
+
 
         if self.current_step % self.accumulation_steps == 0:            
             # Update parameters

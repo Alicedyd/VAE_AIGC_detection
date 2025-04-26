@@ -582,7 +582,7 @@ def validate_and_save_results(model, config_path, result_file, iteration=None, e
                     results_dict[dataset_key] = results
     
     # Get sorted dataset keys for consistent column order
-    dataset_keys = sorted(results_dict.keys())
+    dataset_keys = results_dict.keys()
     
     # Check if results file exists, create with header if not
     file_exists = os.path.isfile(result_file)

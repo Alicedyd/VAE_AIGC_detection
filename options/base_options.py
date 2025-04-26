@@ -37,7 +37,10 @@ class BaseOptions():
         parser.add_argument('--p_blend', type=float, default=0.00, help='initial learning rate for adam')
         parser.add_argument('--ratio_blend', type=float, default=0.00, help='initial learning rate for adam')
 
+        parser.add_argument('--p_shuffle', type=float, default=0.00)
+
         parser.add_argument('--contrastive', action='store_true')
+        parser.add_argument('--token_contrastive', action='store_true')
 
         parser.add_argument('--accumulation_steps', type=int, default=4, help='Number of steps to accumulate gradients before optimizer step')
          
