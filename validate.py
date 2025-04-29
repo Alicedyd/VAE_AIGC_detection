@@ -626,6 +626,19 @@ def validate_and_save_results(model, config_path, result_file, iteration=None, e
                 if results:
                     dataset_key = f"DEMO-{sub_dataset}"
                     results_dict[dataset_key] = results
+
+    # Process GenImage dataset
+    if 'Full-Alignment' in dataset_configs:
+        genimage_config = dataset_configs['Full-Alignment']
+        
+        for sub_dataset, sub_config in genimage_config.items():
+            if isinstance(sub_config, dict):
+                real_path = sub_config.get('real')
+                fake_path = sub_config.get('fake')
+                results = process_dataset('Full-Alignment', sub_dataset, real_path, fake_path)
+                if results:
+                    dataset_key = f"Full-Alignment-{sub_dataset}"
+                    results_dict[dataset_key] = results                
                     
     # Get sorted dataset keys for consistent column order
     dataset_keys = sorted(results_dict.keys())
