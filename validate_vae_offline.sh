@@ -6,8 +6,8 @@
 
 # ===== MODEL CONFIGURATION =====
 ARCH="DINOv2-LoRA:dinov2_vitl14"
-CKPT="./checkpoints/flux_double_resize/model_iters_28000.pth"
-RESULT_FOLDER="./result/flux_double_resize"
+CKPT="checkpoints/xl_mse_ema/model_epoch_0.pth"
+RESULT_FOLDER="./result/base"
 CONFIG_FILE="./configs/drct_genimage_chameleon_geneval.yaml"
 # ===== TRAINING PARAMETERS =====
 LORA_RANK=8

@@ -15,491 +15,22 @@ import os
 from skimage.io import imread
 from copy import deepcopy
 import torch
-
+import json
 from tqdm import tqdm
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from albumentations.core.transforms_interface import ImageOnlyTransform
 
+# Import the transforms we moved to processing.py
+from .processing import (
+    MEAN, STD, MedianBlur, RandomErasing, RandomSharpen, RandomPepperNoise,
+    RandomMask, MotionBlur, RandomPure, RandomGaussianNoise, 
+    JPEG_Compression, RandomJPEGCompression, RandomResizedCropWithVariableSize,
+    PadRandomCrop, PadCenterCrop, create_train_transforms
+)
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-
-
-MEAN = {
-    "imagenet":[0.485, 0.456, 0.406],
-    "clip":[0.48145466, 0.4578275, 0.40821073]
-}
-
-STD = {
-    "imagenet":[0.229, 0.224, 0.225],
-    "clip":[0.26862954, 0.26130258, 0.27577711]
-}
-
-class MedianBlur:
-    """Apply median blur to image.
-    
-    Args:
-        kernel_size (int): Size of the median filter. Must be odd and positive.
-    """
-    
-    def __init__(self, kernel_size=3):
-        self.kernel_size = kernel_size
-        if kernel_size % 2 == 0:
-            self.kernel_size = kernel_size + 1  # Ensure kernel size is odd
-    
-    def __call__(self, img):
-        """
-        Args:
-            img (PIL Image): Image to be blurred.
-            
-        Returns:
-            PIL Image: Blurred image.
-        """
-        # Convert PIL to numpy array
-        img_np = np.array(img)
-        
-        # Apply median blur
-        blurred = cv2.medianBlur(img_np, self.kernel_size)
-        
-        # Convert back to PIL Image
-        return Image.fromarray(blurred)
-    
-    def __repr__(self):
-        return self.__class__.__name__ + f'(kernel_size={self.kernel_size})'
-
-
-class RandomErasing:
-    """Randomly erase rectangular regions from an image.
-    
-    Args:
-        p (float): Probability of applying the transform. Default: 0.5.
-        scale (tuple): Range of area of the erased region relative to the image area.
-                      Default: (0.02, 0.33).
-        ratio (tuple): Range of aspect ratio of the erased region. Default: (0.3, 3.3).
-        value (int, tuple): Value used to fill the erased region. Default: 0.
-    """
-    
-    def __init__(self, p=0.5, scale=(0.02, 0.33), ratio=(0.3, 3.3), value=0):
-        self.p = p
-        self.scale = scale
-        self.ratio = ratio
-        self.value = value
-    
-    def __call__(self, img):
-        """
-        Args:
-            img (PIL Image): Image to be erased.
-            
-        Returns:
-            PIL Image: Erased image.
-        """
-        if random.random() > self.p:
-            return img
-        
-        # Convert PIL to numpy array
-        img_np = np.array(img)
-        height, width = img_np.shape[:2]
-        
-        # Calculate area of image
-        img_area = height * width
-        
-        # Get random area to erase
-        for _ in range(10):  # Try 10 times to find valid parameters
-            erase_area_ratio = random.uniform(self.scale[0], self.scale[1])
-            aspect_ratio = random.uniform(self.ratio[0], self.ratio[1])
-            
-            # Calculate target area
-            erase_area = int(img_area * erase_area_ratio)
-            
-            # Calculate target width and height
-            h = int(np.sqrt(erase_area / aspect_ratio))
-            w = int(np.sqrt(erase_area * aspect_ratio))
-            
-            # Ensure width and height are within image bounds
-            if w < width and h < height:
-                # Random position
-                x = random.randint(0, width - w)
-                y = random.randint(0, height - h)
-                
-                # Erase the region
-                if isinstance(self.value, (int, float)):
-                    # Single value for all channels
-                    if len(img_np.shape) == 3:  # Color image
-                        img_np[y:y+h, x:x+w, :] = self.value
-                    else:  # Grayscale image
-                        img_np[y:y+h, x:x+w] = self.value
-                else:
-                    # Different values for each channel
-                    if len(img_np.shape) == 3:  # Color image
-                        for i, val in enumerate(self.value):
-                            if i < img_np.shape[2]:
-                                img_np[y:y+h, x:x+w, i] = val
-                    else:  # Grayscale image
-                        img_np[y:y+h, x:x+w] = self.value[0]
-                
-                break
-        
-        # Convert back to PIL Image
-        return Image.fromarray(img_np)
-    
-    def __repr__(self):
-        return self.__class__.__name__ + f'(p={self.p}, scale={self.scale}, ratio={self.ratio}, value={self.value})'
-    
-    
-class RandomSharpen:
-    """Apply random sharpening to image.
-    
-    Args:
-        p (float): Probability of applying the transform. Default: 0.1.
-        factor (float or tuple): Sharpening factor. If tuple (min, max), the factor will 
-                          be randomly chosen between min and max. Default: (1.0, 3.0).
-    """
-    
-    def __init__(self, p=0.1, factor=(1.0, 3.0)):
-        self.p = p
-        self.factor = factor
-        if isinstance(factor, (list, tuple)):
-            assert len(factor) == 2, "factor should be a tuple of (min, max)"
-            self.min_factor, self.max_factor = factor
-        else:
-            self.min_factor = self.max_factor = factor
-    
-    def __call__(self, img):
-        """
-        Args:
-            img (PIL Image): Image to be sharpened.
-            
-        Returns:
-            PIL Image: Sharpened image.
-        """
-        if random.random() > self.p:
-            return img
-        
-        # Convert PIL to numpy array
-        img_np = np.array(img).astype(np.float32)
-        
-        # Create blurred version for unsharp mask
-        blurred = cv2.GaussianBlur(img_np, (0, 0), 3.0)
-        
-        # Determine sharpening factor for this application
-        factor = random.uniform(self.min_factor, self.max_factor)
-        
-        # Apply unsharp mask formula: original + factor * (original - blurred)
-        sharpened = img_np + factor * (img_np - blurred)
-        
-        # Clip values to valid range
-        sharpened = np.clip(sharpened, 0, 255).astype(np.uint8)
-        
-        # Convert back to PIL Image
-        return Image.fromarray(sharpened)
-    
-    def __repr__(self):
-        return self.__class__.__name__ + f'(p={self.p}, factor=({self.min_factor}, {self.max_factor}))'
-    
-class RandomPepperNoise:
-    """Apply pepper noise to an image.
-    
-    Args:
-        p (float): Probability of applying the transform. Default: 0.1.
-        noise_ratio (float or tuple): Ratio of pixels to be replaced with noise. 
-                             If tuple (min, max), the ratio will be randomly chosen 
-                             between min and max. Default: (0.01, 0.05).
-    """
-    
-    def __init__(self, p=0.1, noise_ratio=(0.01, 0.05)):
-        self.p = p
-        self.noise_ratio = noise_ratio
-        if isinstance(noise_ratio, (list, tuple)):
-            assert len(noise_ratio) == 2, "noise_ratio should be a tuple of (min, max)"
-            self.min_ratio, self.max_ratio = noise_ratio
-        else:
-            self.min_ratio = self.max_ratio = noise_ratio
-    
-    def __call__(self, img):
-        """
-        Args:
-            img (PIL Image): Image to be applied with pepper noise.
-            
-        Returns:
-            PIL Image: Image with pepper noise.
-        """
-        if random.random() > self.p:
-            return img
-        
-        # Convert PIL to numpy array
-        img_np = np.array(img)
-        height, width = img_np.shape[:2]
-        
-        # Determine noise ratio for this particular application
-        noise_ratio = random.uniform(self.min_ratio, self.max_ratio)
-        
-        # Calculate number of pixels to replace
-        n_pixels = int(height * width * noise_ratio)
-        
-        # Generate random coordinates
-        y_coords = np.random.randint(0, height, n_pixels)
-        x_coords = np.random.randint(0, width, n_pixels)
-        
-        # Apply pepper noise (black pixels)
-        if len(img_np.shape) == 3:  # Color image
-            img_np[y_coords, x_coords, :] = 0
-        else:  # Grayscale image
-            img_np[y_coords, x_coords] = 0
-        
-        # Convert back to PIL Image
-        return Image.fromarray(img_np)
-    
-    def __repr__(self):
-        return self.__class__.__name__ + f'(p={self.p}, noise_ratio=({self.min_ratio}, {self.max_ratio}))'
-    
-class MotionBlur:
-    """Apply motion blur to image by applying a directional filter.
-    
-    Args:
-        kernel_size (int): Size of the motion blur kernel. Must be odd.
-        angle (float, optional): Angle of motion blur in degrees. If None, 
-                                a random angle will be chosen.
-    """
-    
-    def __init__(self, kernel_size=5, angle=None):
-        self.kernel_size = kernel_size
-        if kernel_size % 2 == 0:
-            self.kernel_size = kernel_size + 1  # Ensure kernel size is odd
-        self.angle = angle
-    
-    def __call__(self, img):
-        """
-        Args:
-            img (PIL Image): Image to be blurred.
-            
-        Returns:
-            PIL Image: Motion blurred image.
-        """
-        # Convert PIL to numpy array
-        img_np = np.array(img)
-        
-        # Choose a random angle if none is specified
-        angle = self.angle
-        if angle is None:
-            angle = np.random.uniform(0, 180)
-        
-        # Create motion blur kernel
-        kernel = np.zeros((self.kernel_size, self.kernel_size))
-        center = self.kernel_size // 2
-        
-        # Convert angle to radians
-        angle_rad = np.deg2rad(angle)
-        
-        # Calculate x, y coordinates for the line
-        for i in range(self.kernel_size):
-            offset = i - center
-            x = int(center + np.round(offset * np.cos(angle_rad)))
-            y = int(center + np.round(offset * np.sin(angle_rad)))
-            
-            if 0 <= x < self.kernel_size and 0 <= y < self.kernel_size:
-                kernel[y, x] = 1
-        
-        # Normalize the kernel
-        kernel = kernel / np.sum(kernel)
-        
-        # Apply the kernel to each channel
-        if len(img_np.shape) == 3:  # Color image
-            blurred = np.zeros_like(img_np)
-            for c in range(img_np.shape[2]):
-                blurred[:, :, c] = cv2.filter2D(img_np[:, :, c], -1, kernel)
-        else:  # Grayscale image
-            blurred = cv2.filter2D(img_np, -1, kernel)
-            
-        # Convert back to PIL Image
-        return Image.fromarray(blurred)
-    
-class RandomPure:
-    """随机将图像的一部分转换为纯色矩形"""
-    def __init__(self, p=0.01, min_size=0.1, max_size=0.5):
-        """
-        初始化
-        
-        参数:
-            p (float): 应用转换的概率
-            min_size (float): 纯色区域最小尺寸比例(相对于图像尺寸)
-            max_size (float): 纯色区域最大尺寸比例(相对于图像尺寸)
-        """
-        self.p = p
-        self.min_size = min_size
-        self.max_size = max_size
-    
-    def _generate_random_color(self):
-        """生成随机RGB颜色"""
-        return (
-            random.randint(0, 255),
-            random.randint(0, 255),
-            random.randint(0, 255)
-        )
-    
-    def _get_random_rectangle_params(self, img_width, img_height):
-        """获取随机矩形的参数"""
-        # 确定矩形尺寸
-        width_ratio = random.uniform(self.min_size, self.max_size)
-        height_ratio = random.uniform(self.min_size, self.max_size)
-        
-        rect_width = int(img_width * width_ratio)
-        rect_height = int(img_height * height_ratio)
-        
-        # 随机位置(确保矩形完全在图像内)
-        x1 = random.randint(0, img_width - rect_width)
-        y1 = random.randint(0, img_height - rect_height)
-        x2 = x1 + rect_width
-        y2 = y1 + rect_height
-        
-        return (x1, y1, x2, y2)
-    
-    def __call__(self, img):
-        """应用变换"""
-        if random.random() < self.p:
-            # 获取图像尺寸
-            width, height = img.size
-            
-            # 生成随机颜色
-            color = self._generate_random_color()
-            
-            # 获取随机矩形参数
-            bbox = self._get_random_rectangle_params(width, height)
-            
-            # 创建一个与原图像相同的副本
-            result = img.copy()
-            draw = ImageDraw.Draw(result)
-            
-            # 绘制随机颜色的矩形
-            draw.rectangle(bbox, fill=color)
-            
-            return result
-        else:
-            return img
-
-class RandomGaussianNoise:
-    """为PIL图像添加高斯噪声的转换"""
-    def __init__(self, mean=0, std=35, p=0.5):
-        self.mean = mean
-        self.std = std
-        self.p = p
-        
-    def __call__(self, img):
-        if random.random() < self.p:
-            # 将PIL图像转换为numpy数组
-            img_array = np.array(img).astype(np.float32)
-            
-            # 生成噪声
-            noise = np.random.normal(self.mean, self.std, img_array.shape)
-            
-            # 添加噪声
-            noisy_img = img_array + noise
-            
-            # 裁剪到有效的像素值范围
-            noisy_img = np.clip(noisy_img, 0, 255).astype(np.uint8)
-            
-            # 转回PIL图像
-            return Image.fromarray(noisy_img)
-        return img
-    
-class RandomJPEGCompression:
-    def __init__(self, quality_lower=30, quality_upper=95, p=0.3):
-        self.quality_lower = quality_lower
-        self.quality_upper = quality_upper
-        self.p = p
-        
-    def __call__(self, img):
-        if random.random() < self.p:
-            quality = random.randint(self.quality_lower, self.quality_upper)
-            out = BytesIO()
-            img.save(out, format='jpeg', quality=quality)
-            out.seek(0)
-            img = Image.open(out)
-            return img
-        return img
-    
-    def __repr__(self):
-        return self.__class__.__name__ + f'(quality_lower={self.quality_lower}, quality_upper={self.quality_upper}, p={self.p})'
-    
-
-class RandomResizedCropWithVariableSize(transforms.RandomResizedCrop):
-    def __init__(self, min_size, max_size, scale=(0.08, 1.0), ratio=(1.0, 1.0), interpolation=transforms.InterpolationMode.BILINEAR):
-        self.min_size = min_size
-        self.max_size = max_size
-        super().__init__(size=min_size, scale=scale, ratio=ratio, interpolation=interpolation)
-    
-    def get_random_size(self):
-        """Return a random size between min_size and max_size."""
-        size = random.randint(self.min_size, self.max_size)
-        return size
-
-    def __call__(self, img):
-        size = img.size 
-        size = tuple(int(element * 0.54) for element in size)
-        i, j, h, w = self.get_params(img, self.scale, self.ratio)
-        ret =  F.resized_crop(img, i, j, h, w, size, self.interpolation, antialias=self.antialias)
-        return ret
-
-
-def create_train_transforms(size=224, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), is_crop=True):
-    """创建训练数据增强转换管道"""
-    
-    # 根据是否裁剪选择不同的大小调整方法
-    if is_crop:
-        resize_func = PadRandomCrop(size)
-    else:
-        resize_func = transforms.Resize(size)
-    
-    # 构建转换列表
-    transform_list = [
-        # 千万不要在这里加随机JPEG压缩，加上这个会导致 real acc 大幅下降
-        # RandomJPEGCompression(quality_lower=30, quality_upper=90, p=0.1), 
-
-        # 随机水平翻转
-        transforms.RandomHorizontalFlip(),
-        # 随机竖直翻转
-        transforms.RandomVerticalFlip(),
-        
-        # 添加高斯噪声
-        RandomGaussianNoise(p=0.1),
-        # 添加椒盐噪声
-        RandomPepperNoise(p=0.1),
-        
-        # 随机模糊组合
-        transforms.RandomApply([
-            transforms.RandomChoice([
-                transforms.GaussianBlur(kernel_size=3),
-                transforms.GaussianBlur(kernel_size=5),
-                MedianBlur(kernel_size=3),
-                MotionBlur(kernel_size=5)
-            ])
-        ], p=0.2),
-        
-        # 随机锐化
-        RandomSharpen(p=0.1),
-        
-        # 随机应用颜色变换（亮度、对比度等）
-        transforms.RandomApply([
-            transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.15)
-        ], p=0.5),
-        
-        # 随机转为灰度图
-        transforms.RandomGrayscale(p=0.2),
-        
-        # # 随机遮罩部分区域
-        # RandomErasing(p=0.1, scale=(0.02, 0.1), ratio=(0.3, 3.3)),
-
-        # 调整大小
-        resize_func,
-
-        # 转为张量
-        transforms.ToTensor(),
-        
-        # 标准化
-        transforms.Normalize(mean=mean, std=std),
-    ]
-    
-    # 创建转换组合
-    return transforms.Compose(transform_list)
 
 
 def data_augment(img, opt):
@@ -575,7 +106,6 @@ def custom_resize(img, opt):
     return F.resize(img, opt.loadSize, interpolation=rz_dict[interp])
 
 
-
 def recursively_read(rootdir, must_contain, exts=["png", "jpg", "JPEG", "jpeg"]):
     out = [] 
     for r, d, f in os.walk(rootdir, followlinks=True):
@@ -595,8 +125,6 @@ def get_list(path, must_contain=''):
     return image_list
 
 
-
-
 class CustomBatchSampler:
     def __init__(self, opt, vae_model, transform_funcs):
         temp = 'train' if opt.data_label == 'train' else 'val'
@@ -613,7 +141,7 @@ class CustomBatchSampler:
             vae_transform_funcs.insert(1, vae)
             self.vae_transform_funcs_list.append(vae_transform_funcs)
         
-        self.batch_size =opt.batch_size
+        self.batch_size = opt.batch_size
         self.gpu_id = opt.gpu_ids[0]
 
         self.indices = list(range(len(self.real_list)))
@@ -693,124 +221,6 @@ class CustomBatchSampler:
         return ( len(self.real_list) // (self.batch_size) ) * (1 + self.fake_num)
 
 # ---------- Offline utils ----------
-
-class PadRandomCrop:
-    def __init__(self, size):
-        self.size = size
-        
-    def __call__(self, img):
-
-        w, h = img.size  # 假设输入为 [C, H, W]
-
-        pad_h = max(0, self.size - h)
-        pad_w = max(0, self.size - w)
-
-        # 如果需要填充
-        if pad_h > 0 or pad_w > 0:
-            padding = (
-                pad_w // 2,          # left
-                pad_h // 2,          # top
-                pad_w - pad_w // 2,  # right
-                pad_h - pad_h // 2   # bottom
-            )
-            img = F.pad(img, padding, fill=0)  # 填充0或其他值，如255
-
-        # 对单个图像应用随机裁剪
-        cropped = transforms.RandomCrop(self.size)(img)
-            
-        return cropped
-
-class PadCenterCrop:
-    def __init__(self, size):
-        self.size = size
-        
-    def __call__(self, img):
-
-        w, h = img.size  # 假设输入为 [C, H, W]
-
-        pad_h = max(0, self.size - h)
-        pad_w = max(0, self.size - w)
-
-        # 如果需要填充
-        if pad_h > 0 or pad_w > 0:
-            padding = (
-                pad_w // 2,          # left
-                pad_h // 2,          # top
-                pad_w - pad_w // 2,  # right
-                pad_h - pad_h // 2   # bottom
-            )
-            img = F.pad(img, padding, fill=0)  # 填充0或其他值，如255
-
-        # 对单个图像应用随机裁剪
-        cropped = transforms.CenterCrop(self.size)(img)
-            
-        return cropped
-    
-class ComposedTransforms:
-    """一个图像转换组合，可以一致地应用于多个图像"""
-    def __init__(self, transforms_list):
-        """
-        初始化转换组合
-        
-        Args:
-            transforms_list: 一个torchvision.transforms.Compose对象
-        """
-        self.transforms = transforms_list
-        
-    def __call__(self, images_dict):
-        """
-        对字典中的所有图像应用相同的转换
-        
-        Args:
-            images_dict: 包含不同类型图像的字典
-                        (例如, 'real', 'fake', 'real_resized', 'fake_resized')
-                        
-        Returns:
-            包含转换后图像的字典
-        """
-        # 保存随机状态以实现一致的转换
-        torch_state = torch.get_rng_state()
-        numpy_state = np.random.get_state()
-        python_state = random.getstate()
-        
-        result = {}
-        
-        # 对字典中的每个图像应用转换
-        for key, val in images_dict.items():
-            if val is None:
-                result[key] = None
-                continue
-                
-            if isinstance(val, list):
-                # 处理图像列表
-                transformed_imgs = []
-                for i, single_img in enumerate(val):                   
-                    # 为每个图像重置随机状态
-                    torch.set_rng_state(torch_state)
-                    np.random.set_state(numpy_state)
-                    random.setstate(python_state)
-                    
-                    # 应用所有转换
-                    transformed = self.transforms(single_img)
-                    transformed_imgs.append(transformed)
-                
-                result[key] = transformed_imgs
-
-            elif isinstance(val, Image.Image):
-                # 处理单个PIL图像
-                # 重置随机状态
-                torch.set_rng_state(torch_state)
-                np.random.set_state(numpy_state)
-                random.setstate(python_state)
-                
-                # 应用所有转换
-                transformed = self.transforms(val)
-                result[key] = transformed
-            else:
-                result[key] = val
-                
-        return result
-
 
 def shuffle_image_patches(image, patch_size=14, shuffle_order=None):
     """Shuffle patches of a tensor image.
@@ -895,6 +305,72 @@ def apply_resize(image, resize_factor, resize_method=None):
     return resized
 
 
+class ComposedTransforms:
+    """一个图像转换组合，可以一致地应用于多个图像"""
+    def __init__(self, transforms_list):
+        """
+        初始化转换组合
+        
+        Args:
+            transforms_list: 一个torchvision.transforms.Compose对象
+        """
+        self.transforms = transforms_list
+        
+    def __call__(self, images_dict):
+        """
+        对字典中的所有图像应用相同的转换
+        
+        Args:
+            images_dict: 包含不同类型图像的字典
+                        (例如, 'real', 'fake', 'real_resized', 'fake_resized')
+                        
+        Returns:
+            包含转换后图像的字典
+        """
+        # 保存随机状态以实现一致的转换
+        torch_state = torch.get_rng_state()
+        numpy_state = np.random.get_state()
+        python_state = random.getstate()
+        
+        result = {}
+        
+        # 对字典中的每个图像应用转换
+        for key, val in images_dict.items():
+            if val is None:
+                result[key] = None
+                continue
+                
+            if isinstance(val, list):
+                # 处理图像列表
+                transformed_imgs = []
+                for i, single_img in enumerate(val):                   
+                    # 为每个图像重置随机状态
+                    torch.set_rng_state(torch_state)
+                    np.random.set_state(numpy_state)
+                    random.setstate(python_state)
+                    
+                    # 应用所有转换
+                    transformed = self.transforms(single_img)
+                    transformed_imgs.append(transformed)
+                
+                result[key] = transformed_imgs
+
+            elif isinstance(val, Image.Image):
+                # 处理单个PIL图像
+                # 重置随机状态
+                torch.set_rng_state(torch_state)
+                np.random.set_state(numpy_state)
+                random.setstate(python_state)
+                
+                # 应用所有转换
+                transformed = self.transforms(val)
+                result[key] = transformed
+            else:
+                result[key] = val
+                
+        return result
+
+
 class RealFakeDataset(Dataset):
     def __init__(self, opt):
         assert opt.data_label in ["train", "val"]
@@ -946,14 +422,28 @@ class RealFakeDataset(Dataset):
         # Choose normalization stats
         stat_from = "imagenet" if self.opt.arch.lower().startswith("imagenet") else "clip"
         print("mean and std stats are from:", stat_from)
+
+        if self.opt.jpeg_quality:
+            self.jpeg_quality =  [int(f) for f in self.opt.jpeg_quality.split(',')]
+            print(f'Add random jpeg compression into transform: [{self.jpeg_quality[0]}, {self.jpeg_quality[1]}]')
+        else:
+            self.jpeg_quality = None
    
-        transform_list = create_train_transforms(size=opt.cropSize, mean=MEAN[stat_from], std=STD[stat_from])
+        transform_list = create_train_transforms(size=opt.cropSize, mean=MEAN[stat_from], std=STD[stat_from], random_mask=self.opt.random_mask, jpeg_quality=self.jpeg_quality)
         
         # Create composed transforms
         self.transform = ComposedTransforms(transform_list)
-
+        self.blend_ratios =  [float(f) for f in opt.ratio_blend.split(',')]
+        
         # Set patch shuffle parameters
         self.patch_size = getattr(opt, 'patch_size', 14)  # Default to 14 if not specified
+
+        # for loading jpeg quality factor for real data
+        self.real_quality_factor_mapping = None
+        if self.opt.jpeg_aligned:
+            with open(self.opt.quality_json, "rb") as file:
+                self.real_quality_factor_mapping = json.load(file)
+        
 
     def __len__(self):
         return len(self.data_list)
@@ -975,6 +465,13 @@ class RealFakeDataset(Dataset):
             
             # Load real image
             real_img_path = sample['real_path']
+
+            if self.real_quality_factor_mapping:
+                jpeg_quality_factor = self.real_quality_factor_mapping[os.path.basename(real_img_path)]
+                jpeg_quality_factor = int(jpeg_quality_factor)
+            else:
+                jpeg_quality_factor = None
+
             real_img = Image.open(real_img_path).convert("RGB")
             
             img_dict['real'] = real_img
@@ -983,14 +480,16 @@ class RealFakeDataset(Dataset):
             if len(sample['fake_paths']) > 0:
                 fake_path = random.choice(sample['fake_paths'])
                 fake_img = Image.open(fake_path).convert("RGB")
+                if jpeg_quality_factor:
+                    fake_img = JPEG_Compression(fake_img, jpeg_quality_factor)
                 
                 # Apply blending if needed
                 if self.opt.p_blend > 0 and random.random() < self.opt.p_blend:
                     if fake_img.size != real_img.size:
                         real_img_resized = real_img.resize(fake_img.size, Image.LANCZOS)
-                        fake_img = Image.blend(real_img_resized, fake_img, self.opt.ratio_blend)
+                        fake_img = Image.blend(real_img_resized, fake_img, random.choice(self.blend_ratios))
                     else:
-                        fake_img = Image.blend(real_img, fake_img, self.opt.ratio_blend)
+                        fake_img = Image.blend(real_img, fake_img, random.choice(self.blend_ratios))
                 
                 img_dict['fake'] = fake_img
             else:

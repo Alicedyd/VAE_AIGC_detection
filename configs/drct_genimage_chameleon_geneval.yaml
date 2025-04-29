@@ -101,3 +101,20 @@ GenEval:
   GPT-4o:
     fake: /root/autodl-tmp/AIGC_data/GPT-ImgEval/
 
+DEMO:
+  demo:
+    real: /root/autodl-tmp/AIGC_data/demo_input/demo_test_fake
+    fake: /root/autodl-tmp/AIGC_data/demo_input/demo_test_real
+
+Full-Alignment:
+  xl:
+    fake: /root/autodl-tmp/AIGC_data/Full-Alignment/sdxl
+  ema:
+    fake: /root/autodl-tmp/AIGC_data/Full-Alignment/ema
+  mse:
+    fake: /root/autodl-tmp/AIGC_data/Full-Alignment/mse
+  flux:
+    fake: /root/autodl-tmp/AIGC_data/Full-Alignment/flux
+  sd35:
+    fake: /root/autodl-tmp/AIGC_data/Full-Alignment/sd35
+

@@ -18,5 +18,10 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--beta1', type=float, default=0.9, help='momentum term of adam')
         parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate for adam')
 
+        parser.add_argument('--random_mask', action='store_true')
+        parser.add_argument('--quality_json', default='./MSCOCO_train2017.json')
+        parser.add_argument('--jpeg_aligned', action='store_true')
+        parser.add_argument('--jpeg_quality', type=str, default='')
+
         self.isTrain = True
         return parser

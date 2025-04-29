@@ -128,6 +128,7 @@ if __name__ == '__main__':
                         arch=opt.arch
                     )
                     model.train()
+                    break
 
             model.finalize_epoch()
 

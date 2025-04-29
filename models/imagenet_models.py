@@ -36,6 +36,10 @@ class ImagenetModel(nn.Module):
         self.fc = nn.Linear(CHANNELS[name], num_classes) #manually define a fc layer here
         
 
-    def forward(self, x):
+    def forward(self, x, return_feature=False):
         feature = self.model(x)["penultimate"]
+
+        if return_feature:
+            return feature, self.fc(feature)
+        
         return self.fc(feature)

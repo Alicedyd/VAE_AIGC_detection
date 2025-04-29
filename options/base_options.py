@@ -35,7 +35,7 @@ class BaseOptions():
         parser.add_argument('--upper_resize_factors', type=str, default='')
 
         parser.add_argument('--p_blend', type=float, default=0.00, help='initial learning rate for adam')
-        parser.add_argument('--ratio_blend', type=float, default=0.00, help='initial learning rate for adam')
+        parser.add_argument('--ratio_blend', type=str, default=0.00, help='initial learning rate for adam')
 
         parser.add_argument('--p_shuffle', type=float, default=0.00)
 
